@@ -1,30 +1,42 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   MessageSquare,
   Link2,
   History,
   Send,
-  CheckCircle2,
-  User,
-  Clock,
-  Sparkles,
   AlertCircle,
+  Lock,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react";
-import { useWorkspaceUIStore, SupportingTab } from "@/stores/useWorkspaceUIStore";
+import { useWorkspaceUIStore } from "@/stores/useWorkspaceUIStore";
 import { cn } from "@/lib/utils";
 
-export function SupportingPane() {
+interface SupportingPaneProps {
+  workspaceId: string;
+}
+
+export function SupportingPane({ workspaceId }: SupportingPaneProps) {
   const {
     isSupportingPaneOpen,
     activeSupportingTab,
     setActiveSupportingTab,
+    activeBacklinks,
   } = useWorkspaceUIStore();
 
   const [newComment, setNewComment] = useState("");
 
   if (!isSupportingPaneOpen) return null;
+
+  const incomingBacklinks = activeBacklinks.filter(
+    (b) => b.direction === "incoming"
+  );
+  const outgoingLinks = activeBacklinks.filter(
+    (b) => b.direction === "outgoing"
+  );
 
   return (
     <aside
@@ -63,7 +75,7 @@ export function SupportingPane() {
             )}
           >
             <Link2 className="w-3.5 h-3.5" />
-            <span>Tautan</span>
+            <span>Backlinks</span>
           </button>
 
           <button
@@ -101,20 +113,21 @@ export function SupportingPane() {
                     Raka Pratama
                   </span>
                 </div>
-                <span className="text-[10px] text-on-surface-variant">5m lalu</span>
+                <span className="text-[10px] text-on-surface-variant">
+                  5m lalu
+                </span>
               </div>
 
-              {/* Tag referensi blok */}
               <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container text-[11px] font-medium w-fit">
-                <span>Blok #4: Spesifikasi Target</span>
+                <span>Blok Terikat</span>
               </div>
 
               <p className="text-body-medium text-on-surface text-xs leading-relaxed">
-                Tolong pastikan endpoint API auth sudah terverifikasi dengan Google OAuth sebelum sprint review minggu ini.
+                Gunakan pemicu [[ untuk menautkan dokumen lain secara otomatis ke panel Backlinks.
               </p>
             </div>
 
-            {/* Contoh Orphaned Comment Sesuai PRD §8.1 */}
+            {/* Penanda Komentar Orphaned Sesuai PRD §8.1 */}
             <div className="p-3.5 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2 opacity-85">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -125,7 +138,9 @@ export function SupportingPane() {
                     Nadia Kusuma
                   </span>
                 </div>
-                <span className="text-[10px] text-on-surface-variant">1j lalu</span>
+                <span className="text-[10px] text-on-surface-variant">
+                  1j lalu
+                </span>
               </div>
 
               <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-error-container text-on-error-container text-[11px] font-medium w-fit">
@@ -134,40 +149,98 @@ export function SupportingPane() {
               </div>
 
               <p className="text-body-medium text-on-surface text-xs leading-relaxed">
-                Catatan revisi format JSON sudah dipindahkan ke diagram arsitektur.
+                Komentar lama tetap dipertahankan meski blok aslinya sudah dihapus.
               </p>
             </div>
           </div>
         )}
 
         {activeSupportingTab === "backlinks" && (
-          <div className="flex flex-col gap-3">
-            <span className="text-label-medium text-on-surface-variant font-semibold px-1">
-              Tugas Terkait (Relational Tasks)
-            </span>
+          <div className="flex flex-col gap-4">
+            {/* Backlinks Masuk */}
+            <div className="flex flex-col gap-2">
+              <span className="text-label-medium text-on-surface-variant font-semibold px-1 flex items-center gap-1.5">
+                <ArrowDownLeft className="w-3.5 h-3.5 text-primary" />
+                Menautkan ke Halaman Ini ({incomingBacklinks.length})
+              </span>
 
-            <div className="p-3 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-on-surface">Setup Yjs WebSocket</span>
-                <span className="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-medium">
-                  In Progress
-                </span>
-              </div>
-              <p className="text-xs text-on-surface-variant">
-                Tenggat: 28 Nov 2026 • Penanggung Jawab: Nadia
-              </p>
+              {incomingBacklinks.length === 0 ? (
+                <div className="p-3.5 rounded-2xl bg-surface-container text-xs text-on-surface-variant">
+                  Belum ada halaman atau tugas lain yang menautkan halaman ini.
+                </div>
+              ) : (
+                incomingBacklinks.map((item) =>
+                  item.isPrivateMasked ? (
+                    <div
+                      key={item.id}
+                      className="p-3 rounded-2xl bg-surface-container border border-outline-variant/40 flex items-center gap-2 text-xs text-on-surface-variant"
+                    >
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-medium">[Halaman Privat]</span>
+                    </div>
+                  ) : (
+                    <Link
+                      key={item.id}
+                      href={`/workspace/${workspaceId}/page/${item.pageId}`}
+                      className="p-3 rounded-2xl bg-card-surface border border-outline-variant/40 hover:border-primary/50 transition-colors flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{item.icon || "📄"}</span>
+                        <span className="font-semibold text-on-surface truncate">
+                          {item.title}
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-medium shrink-0">
+                        {item.relationType === "task_note_link"
+                          ? "Task"
+                          : "Backlink"}
+                      </span>
+                    </Link>
+                  )
+                )
+              )}
             </div>
 
-            <div className="p-3 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-on-surface">Skema MySQL & Drizzle</span>
-                <span className="px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[10px] font-medium">
-                  Done
-                </span>
-              </div>
-              <p className="text-xs text-on-surface-variant">
-                Tenggat: 26 Nov 2026 • Penanggung Jawab: Raka
-              </p>
+            {/* Tautan Keluar */}
+            <div className="flex flex-col gap-2">
+              <span className="text-label-medium text-on-surface-variant font-semibold px-1 flex items-center gap-1.5">
+                <ArrowUpRight className="w-3.5 h-3.5 text-secondary" />
+                Tautan dari Halaman Ini ({outgoingLinks.length})
+              </span>
+
+              {outgoingLinks.length === 0 ? (
+                <div className="p-3.5 rounded-2xl bg-surface-container text-xs text-on-surface-variant">
+                  Ketik <code className="font-[family-name:var(--font-mono)]">[[</code> di editor untuk menautkan halaman terkait.
+                </div>
+              ) : (
+                outgoingLinks.map((item) =>
+                  item.isPrivateMasked ? (
+                    <div
+                      key={item.id}
+                      className="p-3 rounded-2xl bg-surface-container border border-outline-variant/40 flex items-center gap-2 text-xs text-on-surface-variant"
+                    >
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-medium">[Halaman Privat]</span>
+                    </div>
+                  ) : (
+                    <Link
+                      key={item.id}
+                      href={`/workspace/${workspaceId}/page/${item.pageId}`}
+                      className="p-3 rounded-2xl bg-card-surface border border-outline-variant/40 hover:border-primary/50 transition-colors flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{item.icon || "📄"}</span>
+                        <span className="font-semibold text-on-surface truncate">
+                          {item.title}
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[10px] font-medium shrink-0">
+                        Terkait
+                      </span>
+                    </Link>
+                  )
+                )
+              )}
             </div>
           </div>
         )}
@@ -181,23 +254,16 @@ export function SupportingPane() {
             <div className="flex flex-col gap-2">
               <div className="p-3 rounded-xl bg-card-surface border border-outline-variant/40 flex items-center justify-between text-xs">
                 <div className="flex flex-col">
-                  <span className="font-semibold text-on-surface">Versi v1.2</span>
-                  <span className="text-[11px] text-on-surface-variant">2 menit lalu oleh Nadia</span>
+                  <span className="font-semibold text-on-surface">
+                    Snapshot CRDT Terbaru
+                  </span>
+                  <span className="text-[11px] text-on-surface-variant">
+                    Tersimpan otomatis via Yjs
+                  </span>
                 </div>
-                <span className="text-[11px] text-primary font-medium">Saat Ini</span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-surface-container flex items-center justify-between text-xs opacity-80">
-                <div className="flex flex-col">
-                  <span className="font-medium text-on-surface">Versi v1.1</span>
-                  <span className="text-[11px] text-on-surface-variant">1 jam lalu oleh Raka</span>
-                </div>
-                <button
-                  type="button"
-                  className="text-xs text-primary font-medium hover:underline"
-                >
-                  Pulihkan
-                </button>
+                <span className="text-[11px] text-primary font-medium">
+                  Aktif
+                </span>
               </div>
             </div>
           </div>

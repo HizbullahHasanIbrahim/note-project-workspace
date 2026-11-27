@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { workspaces, workspaceMembers, pages } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
@@ -70,19 +70,24 @@ async function AsyncWorkspaceShell({
     notFound();
   }
 
-  // 3. Ambil Halaman Shared Teamspace
+  // 3. Ambil Halaman Shared Teamspace (kecuali task_item)
   const rawTeamspacePages = await db
     .select({
       id: pages.id,
       title: pages.title,
       icon: pages.icon,
       pageType: pages.pageType,
+      spaceType: pages.spaceType,
+      parentPageId: pages.parentPageId,
+      createdBy: pages.createdBy,
+      positionOrder: pages.positionOrder,
     })
     .from(pages)
     .where(
       and(
         eq(pages.workspaceId, workspaceId),
         eq(pages.spaceType, "teamspace"),
+        ne(pages.pageType, "task_item"),
         eq(pages.isArchived, false)
       )
     )
@@ -95,6 +100,10 @@ async function AsyncWorkspaceShell({
       title: pages.title,
       icon: pages.icon,
       pageType: pages.pageType,
+      spaceType: pages.spaceType,
+      parentPageId: pages.parentPageId,
+      createdBy: pages.createdBy,
+      positionOrder: pages.positionOrder,
     })
     .from(pages)
     .where(
@@ -102,6 +111,7 @@ async function AsyncWorkspaceShell({
         eq(pages.workspaceId, workspaceId),
         eq(pages.spaceType, "private"),
         eq(pages.createdBy, currentUser.id),
+        ne(pages.pageType, "task_item"),
         eq(pages.isArchived, false)
       )
     )
@@ -119,6 +129,10 @@ async function AsyncWorkspaceShell({
     title: p.title,
     icon: p.icon,
     pageType: p.pageType,
+    spaceType: p.spaceType,
+    parentPageId: p.parentPageId,
+    createdBy: p.createdBy,
+    positionOrder: p.positionOrder,
   }));
 
   const privatePages: NavDrawerPageItem[] = rawPrivatePages.map((p) => ({
@@ -126,11 +140,15 @@ async function AsyncWorkspaceShell({
     title: p.title,
     icon: p.icon,
     pageType: p.pageType,
+    spaceType: p.spaceType,
+    parentPageId: p.parentPageId,
+    createdBy: p.createdBy,
+    positionOrder: p.positionOrder,
   }));
 
   return (
     <div className="h-screen w-screen flex flex-col bg-surface overflow-hidden">
-      {/* Topbar Kanonik M3 dengan Data Keanggotaan Nyata */}
+      {/* Topbar Kanonik M3 dengan Data Keanggotaan & Status Kolaborasi Real-Time */}
       <Topbar
         workspaceId={workspaceId}
         userName={currentUser.fullName}
@@ -140,7 +158,7 @@ async function AsyncWorkspaceShell({
 
       {/* Kontainer Utama 3-Pane Adaptive Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Navigation Drawer dengan Data Database Nyata */}
+        {/* Left Navigation Drawer dengan Pohon Halaman Bersarang (Maks 5 Tingkat) */}
         <NavDrawer
           workspaceId={workspaceId}
           workspaceName={workspace.name}
@@ -149,6 +167,7 @@ async function AsyncWorkspaceShell({
           storageUsedBytes={workspace.storageUsedBytes}
           storageLimitBytes={workspace.storageLimitBytes}
           userRole={currentMembership.role}
+          currentUserId={currentUser.id}
           teamspacePages={teamspacePages}
           privatePages={privatePages}
         />
@@ -162,7 +181,7 @@ async function AsyncWorkspaceShell({
         </main>
 
         {/* Right Supporting Pane */}
-        <SupportingPane />
+        <SupportingPane workspaceId={workspaceId} />
       </div>
     </div>
   );

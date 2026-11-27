@@ -1,29 +1,29 @@
 "use client";
 
-import React from "react";
+import React, { useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
-  FileText,
   FolderLock,
   Plus,
   Search,
   Settings,
-  Database,
   Users,
   HardDrive,
   ChevronDown,
+  AlertCircle,
 } from "lucide-react";
 import { useWorkspaceUIStore } from "@/stores/useWorkspaceUIStore";
-import { canEditTeamspace, canAccessPrivateSpace, WorkspaceRole } from "@/lib/permissions";
+import {
+  canEditTeamspace,
+  canAccessPrivateSpace,
+  WorkspaceRole,
+} from "@/lib/permissions";
+import { createPageAction } from "@/app/workspace/[workspaceId]/page-actions";
+import { NestedPageTree, type NestedPageItem } from "./NestedPageTree";
 import { cn } from "@/lib/utils";
 
-export interface NavDrawerPageItem {
-  id: string;
-  title: string;
-  icon: string | null;
-  pageType: "document" | "database" | "task_item";
-}
+export type NavDrawerPageItem = NestedPageItem;
 
 interface NavDrawerProps {
   workspaceId: string;
@@ -33,8 +33,9 @@ interface NavDrawerProps {
   storageUsedBytes: number;
   storageLimitBytes: number;
   userRole: WorkspaceRole;
-  teamspacePages: NavDrawerPageItem[];
-  privatePages: NavDrawerPageItem[];
+  currentUserId: string;
+  teamspacePages: NestedPageItem[];
+  privatePages: NestedPageItem[];
 }
 
 export function NavDrawer({
@@ -45,20 +46,51 @@ export function NavDrawer({
   storageUsedBytes,
   storageLimitBytes,
   userRole,
+  currentUserId,
   teamspacePages,
   privatePages,
 }: NavDrawerProps) {
   const { isSidebarOpen, setIsCmdKOpen } = useWorkspaceUIStore();
-  const pathname = usePathname();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [treeError, setTreeError] = useState<string | null>(null);
 
   if (!isSidebarOpen) return null;
 
   const canEdit = canEditTeamspace(userRole);
   const canPrivate = canAccessPrivateSpace(userRole);
+  const isAdmin = userRole === "admin";
 
   const storageUsedMB = (storageUsedBytes / (1024 * 1024)).toFixed(0);
   const storageLimitGB = (storageLimitBytes / (1024 * 1024 * 1024)).toFixed(0);
-  const storagePct = Math.min(100, Math.round((storageUsedBytes / storageLimitBytes) * 100));
+  const storagePct = Math.min(
+    100,
+    Math.round((storageUsedBytes / storageLimitBytes) * 100)
+  );
+
+  const handleCreateRootPage = (spaceType: "teamspace" | "private") => {
+    setTreeError(null);
+    startTransition(async () => {
+      const res = await createPageAction({
+        workspaceId,
+        parentPageId: null,
+        spaceType,
+        title:
+          spaceType === "private"
+            ? "Catatan Privat Baru"
+            : "Halaman Baru",
+        icon: spaceType === "private" ? "🔒" : "📄",
+      });
+      if (res.error) {
+        setTreeError(res.error);
+        return;
+      }
+      if (res.pageId) {
+        router.push(`/workspace/${workspaceId}/page/${res.pageId}`);
+        router.refresh();
+      }
+    });
+  };
 
   return (
     <aside
@@ -71,7 +103,6 @@ export function NavDrawer({
     >
       {/* Bagian Atas: Workspace Switcher & Cmd+K */}
       <div className="flex flex-col gap-3 p-3">
-        {/* Workspace Switcher */}
         <Link
           href={`/workspace/${workspaceId}/settings`}
           aria-label="Pengaturan dan info ruang kerja"
@@ -116,9 +147,19 @@ export function NavDrawer({
             ⌘K
           </kbd>
         </button>
+
+        {treeError && (
+          <div
+            role="alert"
+            className="p-2.5 rounded-xl bg-error-container text-on-error-container text-[11px] flex items-start gap-1.5"
+          >
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-error" />
+            <span className="flex-1">{treeError}</span>
+          </div>
+        )}
       </div>
 
-      {/* Bagian Tengah: Tree Navigasi Shared & Private Space */}
+      {/* Bagian Tengah: Pohon Navigasi Bersarang Shared & Private Space */}
       <div className="flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-5">
         {/* Shared Teamspace */}
         <div>
@@ -129,9 +170,11 @@ export function NavDrawer({
             {canEdit && (
               <button
                 type="button"
+                disabled={isPending}
+                onClick={() => handleCreateRootPage("teamspace")}
                 aria-label="Tambah halaman baru di Shared Teamspace"
                 className={cn(
-                  "w-7 h-7 rounded-full flex items-center justify-center",
+                  "min-w-[44px] min-h-[44px] -mr-2 rounded-full flex items-center justify-center",
                   "hover:bg-surface-container-highest text-on-surface-variant transition-colors",
                   "focus-visible:ring-2 focus-visible:ring-outline outline-none"
                 )}
@@ -141,32 +184,15 @@ export function NavDrawer({
             )}
           </div>
 
-          <div className="flex flex-col gap-1">
-            {teamspacePages.map((page) => {
-              const href = `/workspace/${workspaceId}/page/${page.id}`;
-              const isActive = pathname === href || pathname === `/workspace/${workspaceId}`;
-              const Icon = page.pageType === "database" ? Database : FileText;
-
-              return (
-                <Link
-                  key={page.id}
-                  href={href}
-                  className={cn(
-                    "min-h-[44px] px-3.5 py-2 rounded-full flex items-center gap-2.5",
-                    "text-label-large transition-colors focus-visible:ring-2 focus-visible:ring-outline outline-none",
-                    isActive
-                      ? "bg-secondary-container text-on-secondary-container font-semibold"
-                      : "text-on-surface hover:bg-surface-container"
-                  )}
-                >
-                  <span className="text-sm shrink-0">
-                    {page.icon || <Icon className="w-4 h-4 text-on-surface-variant" />}
-                  </span>
-                  <span className="truncate">{page.title}</span>
-                </Link>
-              );
-            })}
-          </div>
+          <NestedPageTree
+            workspaceId={workspaceId}
+            spaceType="teamspace"
+            pages={teamspacePages}
+            currentUserId={currentUserId}
+            canEdit={canEdit}
+            isAdmin={isAdmin}
+            onError={setTreeError}
+          />
         </div>
 
         {/* Private Space (Terisolasi per pengguna aktif / Anti-IDOR) */}
@@ -179,9 +205,11 @@ export function NavDrawer({
               </span>
               <button
                 type="button"
+                disabled={isPending}
+                onClick={() => handleCreateRootPage("private")}
                 aria-label="Tambah catatan pribadi baru"
                 className={cn(
-                  "w-7 h-7 rounded-full flex items-center justify-center",
+                  "min-w-[44px] min-h-[44px] -mr-2 rounded-full flex items-center justify-center",
                   "hover:bg-surface-container-highest text-on-surface-variant transition-colors",
                   "focus-visible:ring-2 focus-visible:ring-outline outline-none"
                 )}
@@ -190,29 +218,15 @@ export function NavDrawer({
               </button>
             </div>
 
-            <div className="flex flex-col gap-1">
-              {privatePages.map((page) => {
-                const href = `/workspace/${workspaceId}/page/${page.id}`;
-                const isActive = pathname === href;
-
-                return (
-                  <Link
-                    key={page.id}
-                    href={href}
-                    className={cn(
-                      "min-h-[44px] px-3.5 py-2 rounded-full flex items-center gap-2.5",
-                      "text-label-large transition-colors focus-visible:ring-2 focus-visible:ring-outline outline-none",
-                      isActive
-                        ? "bg-secondary-container text-on-secondary-container font-semibold"
-                        : "text-on-surface hover:bg-surface-container"
-                    )}
-                  >
-                    <span className="text-sm shrink-0">{page.icon || "🔒"}</span>
-                    <span className="truncate">{page.title}</span>
-                  </Link>
-                );
-              })}
-            </div>
+            <NestedPageTree
+              workspaceId={workspaceId}
+              spaceType="private"
+              pages={privatePages}
+              currentUserId={currentUserId}
+              canEdit={canEdit}
+              isAdmin={isAdmin}
+              onError={setTreeError}
+            />
           </div>
         )}
       </div>

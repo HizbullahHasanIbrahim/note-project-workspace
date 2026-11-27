@@ -1,6 +1,25 @@
 import { create } from "zustand";
+import type { CursorAccentToken } from "@/lib/collab-constants";
 
 export type SupportingTab = "comments" | "backlinks" | "history";
+export type CollabStatus = "saved" | "syncing" | "offline";
+
+export interface LiveCollaborator {
+  clientId: number;
+  name: string;
+  colorToken: CursorAccentToken;
+}
+
+export interface ActiveBacklinkItem {
+  id: string;
+  relationType: "backlink" | "task_note_link";
+  direction: "incoming" | "outgoing";
+  pageId: string;
+  title: string;
+  icon: string | null;
+  isPrivateMasked: boolean;
+  spaceType: "teamspace" | "private";
+}
 
 interface WorkspaceUIState {
   isSidebarOpen: boolean;
@@ -22,6 +41,18 @@ interface WorkspaceUIState {
   isDarkMode: boolean;
   toggleTheme: () => void;
   setTheme: (dark: boolean) => void;
+
+  collabStatus: CollabStatus;
+  setCollabStatus: (status: CollabStatus) => void;
+
+  liveCollaborators: LiveCollaborator[];
+  setLiveCollaborators: (users: LiveCollaborator[]) => void;
+
+  activePageTitle: string | null;
+  setActivePageTitle: (title: string | null) => void;
+
+  activeBacklinks: ActiveBacklinkItem[];
+  setActiveBacklinks: (items: ActiveBacklinkItem[]) => void;
 }
 
 export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
@@ -66,4 +97,16 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
     }
     set({ isDarkMode: dark });
   },
+
+  collabStatus: "saved",
+  setCollabStatus: (status) => set({ collabStatus: status }),
+
+  liveCollaborators: [],
+  setLiveCollaborators: (users) => set({ liveCollaborators: users }),
+
+  activePageTitle: null,
+  setActivePageTitle: (title) => set({ activePageTitle: title }),
+
+  activeBacklinks: [],
+  setActiveBacklinks: (items) => set({ activeBacklinks: items }),
 }));

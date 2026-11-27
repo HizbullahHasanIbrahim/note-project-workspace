@@ -77,7 +77,13 @@ export function verifySessionToken(token: string): SessionPayload | null {
       .update(dataB64)
       .digest("base64url");
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+    const sigBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expectedSignature);
+    if (sigBuf.length !== expectedBuf.length) {
+      return null;
+    }
+
+    if (!crypto.timingSafeEqual(sigBuf, expectedBuf)) {
       return null;
     }
 
@@ -92,6 +98,39 @@ export function verifySessionToken(token: string): SessionPayload | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Membuat token otorisasi WebSocket jangka pendek (12 jam) untuk koneksi Hocuspocus
+ */
+export function createCollabToken(user: {
+  id: string;
+  email: string;
+  fullName: string;
+}): string {
+  return signSessionToken({
+    userId: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    exp: Date.now() + 12 * 60 * 60 * 1000,
+  });
+}
+
+/**
+ * Mengekstrak token sesi dari header Cookie mentah pada koneksi WebSocket handshake
+ */
+export function extractSessionTokenFromCookieHeader(
+  cookieHeader: string | null | undefined
+): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";");
+  for (const part of parts) {
+    const [rawName, ...rest] = part.trim().split("=");
+    if (rawName === SESSION_COOKIE_NAME) {
+      return decodeURIComponent(rest.join("="));
+    }
+  }
+  return null;
 }
 
 /**

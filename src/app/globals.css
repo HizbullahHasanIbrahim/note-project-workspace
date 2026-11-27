@@ -227,6 +227,71 @@
   --bn-border-radius: 12px;
 }
 
+.bn-container[data-m3-theme] .bn-editor {
+  padding-inline: 0;
+  background-color: transparent;
+  font-family: var(--font-inter), sans-serif;
+}
+
+/* Gaya Live Cursor M3 tanpa bergantung pada hex mentah */
+.m3-collab-cursor {
+  position: relative;
+  display: inline-block;
+  width: 2px;
+  height: 1.2em;
+  vertical-align: text-bottom;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+}
+
+.m3-collab-cursor[data-accent="primary"] {
+  background-color: var(--md-sys-color-primary);
+}
+.m3-collab-cursor[data-accent="tertiary"] {
+  background-color: var(--md-sys-color-tertiary);
+}
+.m3-collab-cursor[data-accent="secondary"] {
+  background-color: var(--md-sys-color-secondary);
+}
+
+.m3-collab-cursor-label {
+  position: absolute;
+  top: -1.65em;
+  left: 0;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-jakarta), sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.m3-collab-cursor[data-accent="primary"] .m3-collab-cursor-label {
+  background-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+.m3-collab-cursor[data-accent="tertiary"] .m3-collab-cursor-label {
+  background-color: var(--md-sys-color-tertiary);
+  color: var(--md-sys-color-on-tertiary);
+}
+.m3-collab-cursor[data-accent="secondary"] .m3-collab-cursor-label {
+  background-color: var(--md-sys-color-secondary);
+  color: var(--md-sys-color-on-secondary);
+}
+
+/* Penanda blok dengan utas komentar aktif (SDD.md §5.2) */
+.bn-block-outer[data-has-comment="true"] > .bn-block {
+  border-left: 3px solid var(--md-sys-color-tertiary);
+  background-color: color-mix(in srgb, var(--md-sys-color-tertiary-container) 35%, transparent);
+  border-radius: 8px;
+  padding-left: 8px;
+}
+
 /* Aksesibilitas: Hormati prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

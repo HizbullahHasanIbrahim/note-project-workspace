@@ -1,10 +1,13 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 import { db } from "@/db";
-import { pages, users, workspaceMembers } from "@/db/schema";
-import { getCurrentUser } from "@/lib/auth";
-import { Clock, Sparkles, User } from "lucide-react";
+import { pageRelations, pages, users, workspaceMembers } from "@/db/schema";
+import { createCollabToken, getCurrentUser } from "@/lib/auth";
+import { canEditTeamspace } from "@/lib/permissions";
+import CollaborativeEditor from "@/components/editor/CollaborativeEditor";
+import { PageTitleHeader } from "@/components/editor/PageTitleHeader";
+import type { ActiveBacklinkItem } from "@/stores/useWorkspaceUIStore";
 
 interface PageViewProps {
   params: Promise<{ workspaceId: string; pageId: string }>;
@@ -29,15 +32,15 @@ async function AsyncPageView({ params }: PageViewProps) {
       createdBy: pages.createdBy,
       createdAt: pages.createdAt,
       updatedAt: pages.updatedAt,
+      isArchived: pages.isArchived,
       creatorName: users.fullName,
-      creatorEmail: users.email,
     })
     .from(pages)
     .innerJoin(users, eq(pages.createdBy, users.id))
     .where(and(eq(pages.id, pageId), eq(pages.workspaceId, workspaceId)))
     .limit(1);
 
-  if (!page) {
+  if (!page || page.isArchived) {
     notFound();
   }
 
@@ -58,64 +61,144 @@ async function AsyncPageView({ params }: PageViewProps) {
     )
     .limit(1);
 
-  const isReadOnly = membership?.role === "viewer";
+  if (!membership) {
+    notFound();
+  }
+
+  const isReadOnly = !canEditTeamspace(membership.role);
+
+  // 4. Ambil daftar halaman yang dapat ditautkan melalui pemicu `[[`
+  const accessiblePages = await db
+    .select({
+      id: pages.id,
+      title: pages.title,
+      icon: pages.icon,
+      pageType: pages.pageType,
+      spaceType: pages.spaceType,
+      createdBy: pages.createdBy,
+    })
+    .from(pages)
+    .where(
+      and(
+        eq(pages.workspaceId, workspaceId),
+        eq(pages.isArchived, false),
+        ne(pages.pageType, "task_item"),
+        or(
+          eq(pages.spaceType, "teamspace"),
+          and(
+            eq(pages.spaceType, "private"),
+            eq(pages.createdBy, currentUser.id)
+          )
+        )
+      )
+    )
+    .orderBy(asc(pages.positionOrder));
+
+  // 5. Ambil daftar Backlinks (Incoming & Outgoing) dengan penyamaran halaman privat orang lain (PRD §5.2)
+  const incomingRows = await db
+    .select({
+      relId: pageRelations.id,
+      relationType: pageRelations.relationType,
+      linkedPageId: pages.id,
+      title: pages.title,
+      icon: pages.icon,
+      spaceType: pages.spaceType,
+      createdBy: pages.createdBy,
+      isArchived: pages.isArchived,
+    })
+    .from(pageRelations)
+    .innerJoin(pages, eq(pageRelations.sourcePageId, pages.id))
+    .where(
+      and(
+        eq(pageRelations.targetPageId, pageId),
+        eq(pages.workspaceId, workspaceId),
+        eq(pages.isArchived, false)
+      )
+    );
+
+  const outgoingRows = await db
+    .select({
+      relId: pageRelations.id,
+      relationType: pageRelations.relationType,
+      linkedPageId: pages.id,
+      title: pages.title,
+      icon: pages.icon,
+      spaceType: pages.spaceType,
+      createdBy: pages.createdBy,
+      isArchived: pages.isArchived,
+    })
+    .from(pageRelations)
+    .innerJoin(pages, eq(pageRelations.targetPageId, pages.id))
+    .where(
+      and(
+        eq(pageRelations.sourcePageId, pageId),
+        eq(pages.workspaceId, workspaceId),
+        eq(pages.isArchived, false)
+      )
+    );
+
+  const mapBacklinkRow = (
+    row: (typeof incomingRows)[number],
+    direction: "incoming" | "outgoing"
+  ): ActiveBacklinkItem => {
+    const isPrivateMasked =
+      row.spaceType === "private" && row.createdBy !== currentUser.id;
+    return {
+      id: `${direction}-${row.relId}`,
+      relationType: row.relationType,
+      direction,
+      pageId: isPrivateMasked ? "" : row.linkedPageId,
+      title: isPrivateMasked ? "[Halaman Privat]" : row.title,
+      icon: isPrivateMasked ? null : row.icon,
+      isPrivateMasked,
+      spaceType: row.spaceType,
+    };
+  };
+
+  const initialBacklinks: ActiveBacklinkItem[] = [
+    ...incomingRows.map((r) => mapBacklinkRow(r, "incoming")),
+    ...outgoingRows.map((r) => mapBacklinkRow(r, "outgoing")),
+  ];
+
+  // 6. Token otorisasi WebSocket jangka pendek untuk Hocuspocus
+  const collabToken = createCollabToken({
+    id: currentUser.id,
+    email: currentUser.email,
+    fullName: currentUser.fullName,
+  });
 
   return (
-    <div className="w-full max-w-[840px] mx-auto py-10 px-8 flex flex-col gap-8">
-      {/* Header Halaman Dokumen */}
-      <div className="flex flex-col gap-3">
-        <div className="text-4xl">{page.icon || "📄"}</div>
-        <h1 className="font-[family-name:var(--font-jakarta)] text-display-small text-on-surface font-bold tracking-tight">
-          {page.title}
-        </h1>
-        <div className="flex items-center gap-3 text-xs text-on-surface-variant font-medium">
-          <span className="flex items-center gap-1">
-            <User className="w-3.5 h-3.5" /> Dibuat oleh{" "}
-            <strong className="text-on-surface">{page.creatorName}</strong>
-          </span>
-          <span>•</span>
-          <span className="flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5" />{" "}
-            {new Date(page.updatedAt).toLocaleDateString("id-ID", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            })}
-          </span>
-          <span>•</span>
-          <span className="px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-semibold capitalize">
-            {page.spaceType === "private" ? "Catatan Privat" : "Shared Teamspace"}
-          </span>
-          {isReadOnly && (
-            <span className="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-[11px] font-semibold">
-              Read-Only
-            </span>
-          )}
-        </div>
-      </div>
+    <div className="w-full max-w-[72ch] mx-auto py-10 px-6 sm:px-8 flex flex-col gap-6">
+      <PageTitleHeader
+        workspaceId={workspaceId}
+        pageId={page.id}
+        initialTitle={page.title}
+        initialIcon={page.icon}
+        spaceType={page.spaceType}
+        creatorName={page.creatorName}
+        updatedAtIso={page.updatedAt.toISOString()}
+        isReadOnly={isReadOnly}
+      />
 
-      {/* Blok Callout Material You */}
-      <div className="p-4 rounded-2xl bg-surface-container border-l-4 border-primary flex items-start gap-3">
-        <Sparkles className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-        <div className="flex flex-col gap-1 text-xs">
-          <span className="font-semibold text-on-surface text-sm">
-            Area Editor Kolaboratif
-          </span>
-          <p className="text-on-surface-variant leading-relaxed">
-            Halaman ini terhubung ke sinkronisasi biner CRDT Yjs. Anda dapat mengetik, menambahkan checklist, dan menautkan kartu tugas secara relasional.
-          </p>
-        </div>
-      </div>
-
-      {/* Blok Paragraf */}
-      <div className="flex flex-col gap-3">
-        <h2 className="font-[family-name:var(--font-jakarta)] text-headline-small text-on-surface font-semibold">
-          Spesifikasi Dokumen
-        </h2>
-        <p className="text-body-large text-on-surface leading-relaxed">
-          Dokumen ini tersimpan secara relasional di tabel MySQL `pages` serta mendukung proyeksi teks terindeks ke tabel `page_blocks` untuk pencarian instan Cmd+K.
-        </p>
-      </div>
+      <CollaborativeEditor
+        workspaceId={workspaceId}
+        pageId={page.id}
+        initialTitle={page.title}
+        initialIcon={page.icon}
+        collabToken={collabToken}
+        currentUser={{
+          id: currentUser.id,
+          name: currentUser.fullName,
+        }}
+        isReadOnly={isReadOnly}
+        linkablePages={accessiblePages.map((p) => ({
+          id: p.id,
+          title: p.title,
+          icon: p.icon,
+          pageType: p.pageType,
+        }))}
+        initialBacklinks={initialBacklinks}
+      />
     </div>
   );
 }
@@ -124,7 +207,7 @@ export default function PageView({ params }: PageViewProps) {
   return (
     <Suspense
       fallback={
-        <div className="w-full max-w-[840px] mx-auto py-10 px-8 text-sm text-on-surface-variant">
+        <div className="w-full max-w-[72ch] mx-auto py-10 px-8 text-sm text-on-surface-variant">
           Memuat halaman...
         </div>
       }

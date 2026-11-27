@@ -54,7 +54,11 @@ async function requireCommentWriteAccess(workspaceId: string, pageId: string) {
   }
 
   const [page] = await db
-    .select()
+    .select({
+      id: pages.id,
+      spaceType: pages.spaceType,
+      createdBy: pages.createdBy,
+    })
     .from(pages)
     .where(
       and(

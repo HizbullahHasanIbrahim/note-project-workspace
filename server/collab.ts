@@ -4,6 +4,8 @@ import crypto from "crypto";
 import type * as Y from "yjs";
 import type {
   onAuthenticatePayload,
+  onChangePayload,
+  onDisconnectPayload,
   onLoadDocumentPayload,
   onStoreDocumentPayload,
 } from "@hocuspocus/server";
@@ -340,14 +342,164 @@ export async function syncProjectionsToDatabase(
   });
 }
 
-export async function createCollabServer(
-  port = Number(process.env.COLLAB_PORT || 1234)
-) {
+const VERSION_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * Memvalidasi nomor port server WebSocket dari variabel COLLAB_PORT (default 1234).
+ */
+export function parseCollabPort(
+  rawPort: string | undefined = process.env.COLLAB_PORT
+): number {
+  if (!rawPort || rawPort.trim() === "") {
+    return 1234;
+  }
+  const trimmed = rawPort.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `[Collab] Nilai COLLAB_PORT="${rawPort}" tidak valid. Gunakan angka port 1–65535.`
+    );
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(
+      `[Collab] Nilai COLLAB_PORT="${rawPort}" berada di luar rentang valid (1–65535).`
+    );
+  }
+  return parsed;
+}
+
+export async function createCollabServer(portArg?: number) {
+  const port = portArg !== undefined ? portArg : parseCollabPort();
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `[Collab] Port server kolaborasi tidak valid: ${port}. Harus bernilai 1–65535.`
+    );
+  }
+
   const { Y, HocuspocusServer } = await getBlockNoteRuntime();
+
+  // Pelacakan status perubahan per documentName untuk snapshot saat last-client disconnect
+  const unsavedYjsDocs = new Set<string>();
+  const dirtyVersionDocs = new Set<string>();
+  const lastStoredHashByDoc = new Map<string, string>();
+  const lastSnapshotHashByDoc = new Map<string, string>();
+  const inFlightPersistByDoc = new Map<string, Promise<void>>();
+
+  const persistDocumentState = async (
+    documentName: string,
+    document: Y.Doc,
+    authorIdHint?: string,
+    forceSnapshotOnDirty = false
+  ) => {
+    const previous = inFlightPersistByDoc.get(documentName);
+    const task = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(
+      async () => {
+        const pageId = parseDocumentPageId(documentName);
+
+        const [page] = await db
+          .select({
+            id: pages.id,
+            workspaceId: pages.workspaceId,
+            title: pages.title,
+            createdBy: pages.createdBy,
+            isArchived: pages.isArchived,
+          })
+          .from(pages)
+          .where(eq(pages.id, pageId))
+          .limit(1);
+
+        if (!page || page.isArchived) {
+          unsavedYjsDocs.delete(documentName);
+          dirtyVersionDocs.delete(documentName);
+          return;
+        }
+
+        const crdtBuffer = Buffer.from(Y.encodeStateAsUpdate(document));
+        const crdtHash = crypto
+          .createHash("sha256")
+          .update(crdtBuffer)
+          .digest("hex");
+
+        const hasUnstoredState =
+          lastStoredHashByDoc.get(documentName) !== crdtHash;
+
+        if (hasUnstoredState) {
+          // 1. Simpan state biner Yjs ke kolom LONGBLOB `pages.crdt_state`
+          await db
+            .update(pages)
+            .set({ crdtState: crdtBuffer })
+            .where(eq(pages.id, page.id));
+
+          // 2. Jalankan proyeksi blok ke `page_blocks`, `page_relations`, dan komentar orphaned
+          await syncProjectionsToDatabase(page.id, page.workspaceId, document);
+          lastStoredHashByDoc.set(documentName, crdtHash);
+          // Tandai dirty flag setiap kali perubahan baru disimpan ke MySQL
+          dirtyVersionDocs.add(documentName);
+        }
+
+        unsavedYjsDocs.delete(documentName);
+
+        if (crdtBuffer.length === 0) {
+          return;
+        }
+
+        const hasUnsnapshottedChanges =
+          dirtyVersionDocs.has(documentName) &&
+          lastSnapshotHashByDoc.get(documentName) !== crdtHash;
+
+        if (!hasUnsnapshottedChanges) {
+          dirtyVersionDocs.delete(documentName);
+          return;
+        }
+
+        // 3. Simpan snapshot versi ke `page_versions` jika melewati jeda 10 menit
+        // atau ketika klien terakhir keluar sementara dirty flag masih aktif.
+        let shouldWriteSnapshot = forceSnapshotOnDirty;
+
+        if (!shouldWriteSnapshot) {
+          const [latestVersion] = await db
+            .select({ createdAt: pageVersions.createdAt })
+            .from(pageVersions)
+            .where(eq(pageVersions.pageId, page.id))
+            .orderBy(desc(pageVersions.createdAt))
+            .limit(1);
+
+          const elapsedMs = latestVersion
+            ? Date.now() - latestVersion.createdAt.getTime()
+            : Infinity;
+          shouldWriteSnapshot = elapsedMs >= VERSION_SNAPSHOT_INTERVAL_MS;
+        }
+
+        if (shouldWriteSnapshot) {
+          const snapshotAuthorId = authorIdHint || page.createdBy;
+          await db.insert(pageVersions).values({
+            id: crypto.randomUUID(),
+            pageId: page.id,
+            createdBy: snapshotAuthorId,
+            titleSnapshot: page.title,
+            crdtSnapshot: crdtBuffer,
+          });
+          lastSnapshotHashByDoc.set(documentName, crdtHash);
+          dirtyVersionDocs.delete(documentName);
+        }
+      }
+    );
+
+    inFlightPersistByDoc.set(documentName, task);
+    try {
+      await task;
+    } finally {
+      if (inFlightPersistByDoc.get(documentName) === task) {
+        inFlightPersistByDoc.delete(documentName);
+      }
+    }
+  };
 
   return new HocuspocusServer<CollabContext>({
     name: "note-project-workspace-collab",
     port,
+    // Kelola SIGINT/SIGTERM sendiri lewat graceful shutdown entrypoint
+    stopOnSignals: false,
     // Debounce 2 detik setelah aktivitas ketik berhenti sesuai PRD §7.1
     debounce: 2000,
     maxDebounce: 10000,
@@ -384,7 +536,13 @@ export async function createCollabServer(
 
       const pageId = parseDocumentPageId(documentName);
       const [page] = await db
-        .select()
+        .select({
+          id: pages.id,
+          workspaceId: pages.workspaceId,
+          spaceType: pages.spaceType,
+          createdBy: pages.createdBy,
+          isArchived: pages.isArchived,
+        })
         .from(pages)
         .where(eq(pages.id, pageId))
         .limit(1);
@@ -433,6 +591,11 @@ export async function createCollabServer(
       };
     },
 
+    async onChange(data: onChangePayload<CollabContext>) {
+      unsavedYjsDocs.add(data.documentName);
+      dirtyVersionDocs.add(data.documentName);
+    },
+
     async onLoadDocument(data: onLoadDocumentPayload<CollabContext>) {
       const pageId = data.context?.pageId || parseDocumentPageId(data.documentName);
 
@@ -450,57 +613,35 @@ export async function createCollabServer(
     },
 
     async onStoreDocument(data: onStoreDocumentPayload<CollabContext>) {
-      const pageId =
-        data.lastContext?.pageId || parseDocumentPageId(data.documentName);
+      await persistDocumentState(
+        data.documentName,
+        data.document,
+        data.lastContext?.user?.id,
+        false
+      );
+    },
 
-      // Pastikan halaman masih ada dan ambil workspaceId terkini
-      const [page] = await db
-        .select({
-          id: pages.id,
-          workspaceId: pages.workspaceId,
-          title: pages.title,
-          createdBy: pages.createdBy,
-        })
-        .from(pages)
-        .where(eq(pages.id, pageId))
-        .limit(1);
-
-      if (!page) return;
-
-      const crdtBuffer = Buffer.from(Y.encodeStateAsUpdate(data.document));
-
-      // 1. Simpan state biner Yjs ke kolom LONGBLOB `pages.crdt_state`
-      await db
-        .update(pages)
-        .set({ crdtState: crdtBuffer })
-        .where(eq(pages.id, page.id));
-
-      // 2. Jalankan proyeksi blok ke `page_blocks`, `page_relations`, dan komentar orphaned
-      await syncProjectionsToDatabase(page.id, page.workspaceId, data.document);
-
-      // 3. Simpan snapshot otomatis ke `page_versions` (maksimal 1 snapshot per 10 menit/halaman)
-      const VERSION_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
-      const [latestVersion] = await db
-        .select({ createdAt: pageVersions.createdAt })
-        .from(pageVersions)
-        .where(eq(pageVersions.pageId, page.id))
-        .orderBy(desc(pageVersions.createdAt))
-        .limit(1);
-
-      const elapsedMs = latestVersion
-        ? Date.now() - latestVersion.createdAt.getTime()
-        : Infinity;
-
-      if (elapsedMs >= VERSION_SNAPSHOT_INTERVAL_MS && crdtBuffer.length > 0) {
-        const snapshotAuthorId = data.lastContext?.user?.id || page.createdBy;
-        await db.insert(pageVersions).values({
-          id: crypto.randomUUID(),
-          pageId: page.id,
-          createdBy: snapshotAuthorId,
-          titleSnapshot: page.title,
-          crdtSnapshot: crdtBuffer,
-        });
+    async onDisconnect(data: onDisconnectPayload<CollabContext>) {
+      // Saat klien terakhir meninggalkan dokumen, simpan snapshot jika masih ada perubahan dirty
+      if (
+        data.document.getConnectionsCount() === 0 &&
+        (dirtyVersionDocs.has(data.documentName) ||
+          unsavedYjsDocs.has(data.documentName))
+      ) {
+        await persistDocumentState(
+          data.documentName,
+          data.document,
+          data.context?.user?.id,
+          true
+        );
       }
+    },
+
+    async afterUnloadDocument(data) {
+      unsavedYjsDocs.delete(data.documentName);
+      dirtyVersionDocs.delete(data.documentName);
+      lastStoredHashByDoc.delete(data.documentName);
+      lastSnapshotHashByDoc.delete(data.documentName);
     },
   });
 }
@@ -510,10 +651,48 @@ const entryBase = process.argv[1] ? path.basename(process.argv[1]) : "";
 const isEntrypoint = entryBase === "collab.ts" || entryBase === "collab.js";
 
 if (isEntrypoint) {
-  createCollabServer()
-    .then((server) => server.listen())
-    .catch((err) => {
-      console.error("[Collab] Gagal menjalankan server Hocuspocus:", err);
+  (async () => {
+    const port = parseCollabPort();
+    const server = await createCollabServer(port);
+
+    server.httpServer.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(
+          `[Collab] Gagal menjalankan server: port ${port} sudah digunakan proses lain (EADDRINUSE). Hentikan proses tersebut atau ubah COLLAB_PORT di .env.`
+        );
+      } else {
+        console.error(
+          `[Collab] Kesalahan fatal HTTP/WebSocket server pada port ${port}:`,
+          err
+        );
+      }
       process.exit(1);
     });
+
+    let isShuttingDown = false;
+    const shutdownGracefully = async (signal: string) => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+      console.log(
+        `\n[Collab] Menerima sinyal ${signal}. Menyimpan seluruh dokumen Yjs yang tersisa ke MySQL...`
+      );
+      try {
+        await server.destroy();
+        await db.$client.end();
+        console.log("[Collab] Graceful shutdown selesai tanpa kehilangan data.");
+        process.exit(0);
+      } catch (err) {
+        console.error("[Collab] Terjadi kesalahan saat graceful shutdown:", err);
+        process.exit(1);
+      }
+    };
+
+    process.once("SIGINT", () => void shutdownGracefully("SIGINT"));
+    process.once("SIGTERM", () => void shutdownGracefully("SIGTERM"));
+
+    await server.listen();
+  })().catch((err) => {
+    console.error("[Collab] Gagal menjalankan server Hocuspocus:", err);
+    process.exit(1);
+  });
 }

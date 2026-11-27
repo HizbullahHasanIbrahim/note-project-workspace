@@ -515,58 +515,70 @@ export default function CollaborativeEditorInner({
     setActiveSelectedBlock,
   ]);
 
-  // Siklus hidup terisolasi Y.Doc + HocuspocusProvider dengan cleanup wajib (SDD.md §6.2)
+  // Siklus hidup terisolasi Y.Doc + HocuspocusProvider dengan debounce inisialisasi 120ms & cleanup wajib (SDD.md §6.2)
   useEffect(() => {
-    const wsUrl =
-      process.env.NEXT_PUBLIC_COLLAB_WS_URL || "ws://localhost:1234";
+    let isCancelled = false;
+    let ydoc: Y.Doc | null = null;
+    let provider: HocuspocusProvider | null = null;
 
-    const ydoc = new Y.Doc();
     setCollabStatus("syncing");
+    setSessionInstance(null);
 
-    const provider = new HocuspocusProvider({
-      url: wsUrl,
-      name: pageId,
-      document: ydoc,
-      token: collabToken,
-      onStatus: ({ status }) => {
-        if (status === WebSocketStatus.Disconnected) {
-          setCollabStatus("offline");
-        } else if (status === WebSocketStatus.Connecting) {
-          setCollabStatus("syncing");
-        }
-      },
-      onSynced: ({ state }) => {
-        setCollabStatus(state ? "saved" : "syncing");
-      },
-      onUnsyncedChanges: ({ number }) => {
-        if (number > 0) {
-          setCollabStatus("syncing");
-        } else if (provider.isSynced) {
-          setCollabStatus("saved");
-        }
-      },
-      onAwarenessUpdate: ({ states }) => {
-        const mapped = states
-          .filter((s) => s.user && typeof s.user.name === "string")
-          .map((s) => ({
-            clientId: s.clientId,
-            name: String(s.user.name),
-            colorToken: (s.user.color === "tertiary" ||
-            s.user.color === "secondary"
-              ? s.user.color
-              : "primary") as CursorAccentToken,
-          }));
-        setLiveCollaborators(mapped);
-      },
-    });
+    // Tunda 120ms agar navigasi cepat antar-halaman di sidebar tidak memicu badai koneksi ke WebSocket port 1234
+    const initTimer = setTimeout(() => {
+      if (isCancelled) return;
 
-    setSessionInstance({ ydoc, provider });
+      const wsUrl =
+        process.env.NEXT_PUBLIC_COLLAB_WS_URL || "ws://localhost:1234";
+
+      ydoc = new Y.Doc();
+      provider = new HocuspocusProvider({
+        url: wsUrl,
+        name: pageId,
+        document: ydoc,
+        token: collabToken,
+        onStatus: ({ status }) => {
+          if (status === WebSocketStatus.Disconnected) {
+            setCollabStatus("offline");
+          } else if (status === WebSocketStatus.Connecting) {
+            setCollabStatus("syncing");
+          }
+        },
+        onSynced: ({ state }) => {
+          setCollabStatus(state ? "saved" : "syncing");
+        },
+        onUnsyncedChanges: ({ number }) => {
+          if (number > 0) {
+            setCollabStatus("syncing");
+          } else if (provider?.isSynced) {
+            setCollabStatus("saved");
+          }
+        },
+        onAwarenessUpdate: ({ states }) => {
+          const mapped = states
+            .filter((s) => s.user && typeof s.user.name === "string")
+            .map((s) => ({
+              clientId: s.clientId,
+              name: String(s.user.name),
+              colorToken: (s.user.color === "tertiary" ||
+              s.user.color === "secondary"
+                ? s.user.color
+                : "primary") as CursorAccentToken,
+            }));
+          setLiveCollaborators(mapped);
+        },
+      });
+
+      setSessionInstance({ ydoc, provider });
+    }, 120);
 
     return () => {
+      isCancelled = true;
+      clearTimeout(initTimer);
       setLiveCollaborators([]);
       setCollabStatus("saved");
-      provider.destroy();
-      ydoc.destroy();
+      provider?.destroy();
+      ydoc?.destroy();
     };
   }, [pageId, collabToken, setCollabStatus, setLiveCollaborators]);
 

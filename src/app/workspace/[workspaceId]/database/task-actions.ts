@@ -47,7 +47,11 @@ async function requireTaskEditAccess(workspaceId: string, databasePageId: string
   }
 
   const [databasePage] = await db
-    .select()
+    .select({
+      id: pages.id,
+      spaceType: pages.spaceType,
+      createdBy: pages.createdBy,
+    })
     .from(pages)
     .where(
       and(

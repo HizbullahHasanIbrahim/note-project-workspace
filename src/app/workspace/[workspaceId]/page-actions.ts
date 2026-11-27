@@ -51,13 +51,26 @@ async function requireEditableMembership(workspaceId: string) {
 }
 
 /**
- * Menghitung kedalaman halaman dari akar (root = 1) serta memvalidasi anti-circular reference
+ * Mengambil peta hierarki ringan (hanya `id` dan `parentPageId`) tanpa memuat `crdt_state` LONGBLOB,
+ * lalu menghitung kedalaman halaman dari akar (root = 1) serta memvalidasi anti-circular reference.
  */
-function computeNodeDepthAndCheckCycle(
+async function computeNodeDepthAndCheckCycle(
+  workspaceId: string,
   nodeId: string,
-  pageMap: Map<string, { id: string; parentPageId: string | null }>,
   forbiddenAncestorId?: string
-): { depth: number; hasCycleWithForbidden: boolean } {
+): Promise<{ depth: number; hasCycleWithForbidden: boolean }> {
+  const rows = await db
+    .select({
+      id: pages.id,
+      parentPageId: pages.parentPageId,
+    })
+    .from(pages)
+    .where(
+      and(eq(pages.workspaceId, workspaceId), eq(pages.isArchived, false))
+    );
+
+  const pageMap = new Map(rows.map((r) => [r.id, r]));
+
   let depth = 0;
   let currentId: string | null = nodeId;
   const visited = new Set<string>();
@@ -147,7 +160,10 @@ export async function createPageAction(input: {
       }
       effectiveSpaceType = parent.spaceType;
 
-      const { depth } = computeNodeDepthAndCheckCycle(parentPageId, pageMap);
+      const { depth } = await computeNodeDepthAndCheckCycle(
+        input.workspaceId,
+        parentPageId
+      );
       if (depth >= MAX_PAGE_NESTING_DEPTH) {
         return {
           error: `Kedalaman hierarki halaman dibatasi maksimal ${MAX_PAGE_NESTING_DEPTH} tingkat.`,
@@ -205,7 +221,12 @@ export async function updatePageMetaAction(input: {
     const { user } = await requireEditableMembership(input.workspaceId);
 
     const [existing] = await db
-      .select()
+      .select({
+        id: pages.id,
+        spaceType: pages.spaceType,
+        createdBy: pages.createdBy,
+        isArchived: pages.isArchived,
+      })
       .from(pages)
       .where(
         and(eq(pages.id, input.pageId), eq(pages.workspaceId, input.workspaceId))
@@ -304,11 +325,12 @@ export async function movePageAction(input: {
         return { error: "Akses ditolak ke ruang privat tujuan." };
       }
 
-      const { depth, hasCycleWithForbidden } = computeNodeDepthAndCheckCycle(
-        input.newParentId,
-        pageMap,
-        input.pageId
-      );
+      const { depth, hasCycleWithForbidden } =
+        await computeNodeDepthAndCheckCycle(
+          input.workspaceId,
+          input.newParentId,
+          input.pageId
+        );
 
       if (hasCycleWithForbidden) {
         return {
@@ -402,7 +424,12 @@ export async function switchPageSpaceAction(input: {
     const { user, membership } = await requireEditableMembership(input.workspaceId);
 
     const [page] = await db
-      .select()
+      .select({
+        id: pages.id,
+        spaceType: pages.spaceType,
+        createdBy: pages.createdBy,
+        isArchived: pages.isArchived,
+      })
       .from(pages)
       .where(
         and(eq(pages.id, input.pageId), eq(pages.workspaceId, input.workspaceId))
@@ -525,7 +552,10 @@ export async function createSprintSubDatabaseAction(input: {
       return { error: "Akses ditolak untuk halaman privat." };
     }
 
-    const { depth } = computeNodeDepthAndCheckCycle(input.parentPageId, pageMap);
+    const { depth } = await computeNodeDepthAndCheckCycle(
+      input.workspaceId,
+      input.parentPageId
+    );
     // Jika halaman sudah berada di kedalaman maksimal 5, letakkan sub-database sejajar sebagai sibling
     const targetParentId =
       depth >= MAX_PAGE_NESTING_DEPTH ? parent.parentPageId : input.parentPageId;

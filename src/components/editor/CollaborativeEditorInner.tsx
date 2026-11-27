@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as Y from "yjs";
 import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
@@ -22,6 +22,7 @@ import {
 import {
   useWorkspaceUIStore,
   type ActiveBacklinkItem,
+  type ActiveCommentItem,
 } from "@/stores/useWorkspaceUIStore";
 import {
   createSprintSubDatabaseAction,
@@ -53,6 +54,8 @@ export interface CollaborativeEditorProps {
   isReadOnly: boolean;
   linkablePages: LinkablePageSummary[];
   initialBacklinks: ActiveBacklinkItem[];
+  initialComments?: ActiveCommentItem[];
+  syncShellContext?: boolean;
 }
 
 function isDocumentEffectivelyEmpty(blocks: Block<any, any, any>[]): boolean {
@@ -90,6 +93,25 @@ function renderMaterialCursor(user: { name: string; color: string }) {
   return wrapper;
 }
 
+function extractBlockPreview(block: Block<any, any, any>): string {
+  if (!block || !Array.isArray(block.content)) return "";
+  const chunks: string[] = [];
+  for (const item of block.content) {
+    if (item && typeof item === "object") {
+      if ("text" in item && typeof item.text === "string") {
+        chunks.push(item.text);
+      } else if ("content" in item && Array.isArray(item.content)) {
+        for (const nested of item.content) {
+          if (nested && typeof nested === "object" && "text" in nested && typeof nested.text === "string") {
+            chunks.push(nested.text);
+          }
+        }
+      }
+    }
+  }
+  return chunks.join("").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
 interface EditorSurfaceProps {
   workspaceId: string;
   pageId: string;
@@ -101,6 +123,7 @@ interface EditorSurfaceProps {
   isReadOnly: boolean;
   isDarkMode: boolean;
   linkablePages: LinkablePageSummary[];
+  syncShellContext: boolean;
 }
 
 function EditorSurface({
@@ -114,8 +137,11 @@ function EditorSurface({
   isReadOnly,
   isDarkMode,
   linkablePages,
+  syncShellContext,
 }: EditorSurfaceProps) {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { activeComments, setActiveSelectedBlock } = useWorkspaceUIStore();
   const [isEmptyDoc, setIsEmptyDoc] = useState(true);
   const [templateDismissed, setTemplateDismissed] = useState(false);
   const [isApplyingTemplate, startApplyingTemplate] = useTransition();
@@ -164,6 +190,67 @@ function EditorSurface({
       provider.off("synced", onSyncedHandler);
     };
   }, [editor, provider]);
+
+  // Sinkronkan blok yang sedang aktif dipilih ke SupportingPane untuk komentar inline
+  useEffect(() => {
+    if (!syncShellContext) return;
+    const syncSelection = () => {
+      try {
+        const pos = editor.getTextCursorPosition();
+        if (pos?.block?.id) {
+          setActiveSelectedBlock({
+            id: pos.block.id,
+            preview: extractBlockPreview(pos.block),
+          });
+        }
+      } catch {
+        // Abaikan jika seleksi editor belum tersedia
+      }
+    };
+    const unsubSelection = editor.onSelectionChange(syncSelection);
+    return () => {
+      if (typeof unsubSelection === "function") {
+        unsubSelection();
+      }
+    };
+  }, [editor, syncShellContext, setActiveSelectedBlock]);
+
+  // Tandai blok yang memiliki komentar aktif belum selesai agar sesuai SDD §5.2
+  useEffect(() => {
+    if (!syncShellContext) return;
+    const activeBlockIds = new Set(
+      activeComments
+        .filter((c) => !c.isResolved && !c.isBlockDeleted && Boolean(c.blockId))
+        .map((c) => c.blockId as string)
+    );
+
+    const applyCommentMarkers = () => {
+      const root = containerRef.current;
+      if (!root) return;
+      const nodes = root.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]");
+      nodes.forEach((node) => {
+        const blockId = node.getAttribute("data-id");
+        if (blockId && activeBlockIds.has(blockId)) {
+          node.setAttribute("data-has-comment", "true");
+        } else {
+          node.removeAttribute("data-has-comment");
+        }
+      });
+    };
+
+    applyCommentMarkers();
+    const rafId = requestAnimationFrame(applyCommentMarkers);
+    const unsubChange = editor.onChange(() => {
+      requestAnimationFrame(applyCommentMarkers);
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (typeof unsubChange === "function") {
+        unsubChange();
+      }
+    };
+  }, [editor, activeComments, syncShellContext]);
 
   // Item suggestion untuk pemicu tautan internal halaman `[[` (PRD §4.2 US-08)
   const getPageLinkItems = async (
@@ -246,7 +333,7 @@ function EditorSurface({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={containerRef} className="flex flex-col gap-4">
       {!isReadOnly && isEmptyDoc && !templateDismissed && (
         <TemplatePickerCard
           onSelectTemplate={handleSelectTemplate}
@@ -279,13 +366,18 @@ export default function CollaborativeEditorInner({
   isReadOnly,
   linkablePages,
   initialBacklinks,
+  initialComments = [],
+  syncShellContext = true,
 }: CollaborativeEditorProps) {
   const {
     isDarkMode,
     setCollabStatus,
     setLiveCollaborators,
+    setActivePageId,
     setActivePageTitle,
     setActiveBacklinks,
+    setActiveComments,
+    setActiveSelectedBlock,
   } = useWorkspaceUIStore();
 
   const [sessionInstance, setSessionInstance] = useState<{
@@ -298,15 +390,32 @@ export default function CollaborativeEditorInner({
     [currentUser.id]
   );
 
-  // Sinkronkan judul halaman aktif & daftar backlink ke Topbar/SupportingPane
+  // Sinkronkan judul halaman aktif, backlink, dan komentar ke Topbar/SupportingPane
   useEffect(() => {
+    if (!syncShellContext) return;
+    setActivePageId(pageId);
     setActivePageTitle(initialTitle);
     setActiveBacklinks(initialBacklinks);
+    setActiveComments(initialComments);
     return () => {
+      setActivePageId(null);
       setActivePageTitle(null);
       setActiveBacklinks([]);
+      setActiveComments([]);
+      setActiveSelectedBlock(null);
     };
-  }, [initialTitle, initialBacklinks, setActivePageTitle, setActiveBacklinks]);
+  }, [
+    syncShellContext,
+    pageId,
+    initialTitle,
+    initialBacklinks,
+    initialComments,
+    setActivePageId,
+    setActivePageTitle,
+    setActiveBacklinks,
+    setActiveComments,
+    setActiveSelectedBlock,
+  ]);
 
   // Siklus hidup terisolasi Y.Doc + HocuspocusProvider dengan cleanup wajib (SDD.md §6.2)
   useEffect(() => {
@@ -390,6 +499,7 @@ export default function CollaborativeEditorInner({
       isReadOnly={isReadOnly}
       isDarkMode={isDarkMode}
       linkablePages={linkablePages}
+      syncShellContext={syncShellContext}
     />
   );
 }

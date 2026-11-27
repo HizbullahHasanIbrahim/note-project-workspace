@@ -9,7 +9,6 @@ import {
   Sun,
   Moon,
   Share2,
-  Bell,
   LogOut,
   ChevronRight,
   Eye,
@@ -18,6 +17,10 @@ import {
 import { useWorkspaceUIStore } from "@/stores/useWorkspaceUIStore";
 import { WorkspaceRole } from "@/lib/permissions";
 import { logoutAction } from "@/app/(auth)/actions";
+import {
+  MentionsPopover,
+  type UnreadMentionItem,
+} from "@/components/shell/MentionsPopover";
 import { cn } from "@/lib/utils";
 
 interface TopbarProps {
@@ -25,6 +28,7 @@ interface TopbarProps {
   userName: string;
   userRole: WorkspaceRole;
   pageTitle?: string;
+  mentions?: UnreadMentionItem[];
 }
 
 export function Topbar({
@@ -32,6 +36,7 @@ export function Topbar({
   userName,
   userRole,
   pageTitle = "Dokumen Utama",
+  mentions = [],
 }: TopbarProps) {
   const {
     isSidebarOpen,
@@ -161,18 +166,7 @@ export function Topbar({
         </div>
 
         {/* Notifikasi Mention */}
-        <button
-          type="button"
-          aria-label="Lihat notifikasi sebutan (@mention)"
-          className={cn(
-            "min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center relative",
-            "hover:bg-surface-container-high text-on-surface transition-colors",
-            "focus-visible:ring-2 focus-visible:ring-outline outline-none"
-          )}
-        >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-tertiary ring-2 ring-surface" />
-        </button>
+        <MentionsPopover workspaceId={workspaceId} mentions={mentions} />
 
         {/* Switcher Mode Gelap / Terang */}
         <button

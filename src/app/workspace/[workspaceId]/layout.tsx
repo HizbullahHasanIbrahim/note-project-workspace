@@ -1,12 +1,23 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { workspaces, workspaceMembers, pages } from "@/db/schema";
+import {
+  commentMentions,
+  comments,
+  pages,
+  tasks,
+  users,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { NavDrawer, NavDrawerPageItem } from "@/components/shell/NavDrawer";
 import { Topbar } from "@/components/shell/Topbar";
 import { SupportingPane } from "@/components/shell/SupportingPane";
+import { QuickCommandModal } from "@/components/shell/QuickCommandModal";
+import type { UnreadMentionItem } from "@/components/shell/MentionsPopover";
+import type { WorkspaceMemberSummary } from "@/stores/useWorkspaceUIStore";
 
 interface WorkspaceLayoutProps {
   children: React.ReactNode;
@@ -117,12 +128,75 @@ async function AsyncWorkspaceShell({
     )
     .orderBy(asc(pages.positionOrder));
 
-  // 5. Hitung Jumlah Anggota Aktif
+  // 5. Hitung Jumlah Anggota Aktif & Ambil Daftar Anggota + Notifikasi @mention
   const [countRows] = (await db.execute(
     sql`SELECT COUNT(*) as memberCount FROM workspace_members WHERE workspace_id = ${workspaceId}`
   )) as unknown as [Array<{ memberCount: number }>];
 
   const currentMemberCount = Number(countRows[0]?.memberCount || 1);
+
+  const rawMembers = await db
+    .select({
+      userId: users.id,
+      fullName: users.fullName,
+      email: users.email,
+      role: workspaceMembers.role,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(workspaceMembers.userId, users.id))
+    .where(eq(workspaceMembers.workspaceId, workspaceId))
+    .orderBy(asc(users.fullName));
+
+  const workspaceMemberList: WorkspaceMemberSummary[] = rawMembers;
+
+  // Ambil daftar notifikasi @mention milik pengguna saat ini dengan isolasi Private Space
+  const rawMentions = await db
+    .select({
+      id: commentMentions.id,
+      commentId: comments.id,
+      pageId: pages.id,
+      pageTitle: pages.title,
+      pageType: pages.pageType,
+      databasePageId: tasks.databasePageId,
+      authorName: users.fullName,
+      content: comments.content,
+      isRead: commentMentions.isRead,
+      createdAt: commentMentions.createdAt,
+    })
+    .from(commentMentions)
+    .innerJoin(comments, eq(commentMentions.commentId, comments.id))
+    .innerJoin(pages, eq(comments.pageId, pages.id))
+    .innerJoin(users, eq(comments.authorId, users.id))
+    .leftJoin(tasks, eq(tasks.detailPageId, pages.id))
+    .where(
+      and(
+        eq(commentMentions.mentionedUserId, currentUser.id),
+        eq(pages.workspaceId, workspaceId),
+        eq(pages.isArchived, false),
+        or(
+          eq(pages.spaceType, "teamspace"),
+          and(
+            eq(pages.spaceType, "private"),
+            eq(pages.createdBy, currentUser.id)
+          )
+        )
+      )
+    )
+    .orderBy(asc(commentMentions.isRead), desc(commentMentions.createdAt))
+    .limit(20);
+
+  const unreadMentions: UnreadMentionItem[] = rawMentions.map((m) => ({
+    id: m.id,
+    commentId: m.commentId,
+    pageId: m.pageId,
+    pageTitle: m.pageTitle,
+    pageType: m.pageType,
+    databasePageId: m.databasePageId,
+    authorName: m.authorName,
+    content: m.content,
+    isRead: m.isRead,
+    createdAt: m.createdAt.toISOString(),
+  }));
 
   const teamspacePages: NavDrawerPageItem[] = rawTeamspacePages.map((p) => ({
     id: p.id,
@@ -154,6 +228,7 @@ async function AsyncWorkspaceShell({
         userName={currentUser.fullName}
         userRole={currentMembership.role}
         pageTitle={teamspacePages[0]?.title || "Dokumen Utama"}
+        mentions={unreadMentions}
       />
 
       {/* Kontainer Utama 3-Pane Adaptive Layout */}
@@ -181,8 +256,19 @@ async function AsyncWorkspaceShell({
         </main>
 
         {/* Right Supporting Pane */}
-        <SupportingPane workspaceId={workspaceId} />
+        <SupportingPane
+          workspaceId={workspaceId}
+          userRole={currentMembership.role}
+          currentUserId={currentUser.id}
+          members={workspaceMemberList}
+        />
       </div>
+
+      {/* Pencarian Cepat Cmd+K */}
+      <QuickCommandModal
+        workspaceId={workspaceId}
+        userRole={currentMembership.role}
+      />
     </div>
   );
 }

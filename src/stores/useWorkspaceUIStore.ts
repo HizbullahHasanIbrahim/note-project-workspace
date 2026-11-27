@@ -19,6 +19,33 @@ export interface ActiveBacklinkItem {
   icon: string | null;
   isPrivateMasked: boolean;
   spaceType: "teamspace" | "private";
+  pageType?: "document" | "database" | "task_item";
+  databasePageId?: string | null;
+}
+
+export interface ActiveCommentItem {
+  id: string;
+  pageId: string;
+  blockId: string | null;
+  isBlockDeleted: boolean;
+  authorId: string;
+  authorName: string;
+  parentCommentId: string | null;
+  content: string;
+  isResolved: boolean;
+  createdAtIso: string;
+}
+
+export interface WorkspaceMemberSummary {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: "admin" | "member" | "viewer";
+}
+
+export interface SelectedEditorBlock {
+  id: string;
+  preview: string;
 }
 
 interface WorkspaceUIState {
@@ -48,11 +75,20 @@ interface WorkspaceUIState {
   liveCollaborators: LiveCollaborator[];
   setLiveCollaborators: (users: LiveCollaborator[]) => void;
 
+  activePageId: string | null;
+  setActivePageId: (id: string | null) => void;
+
   activePageTitle: string | null;
   setActivePageTitle: (title: string | null) => void;
 
   activeBacklinks: ActiveBacklinkItem[];
   setActiveBacklinks: (items: ActiveBacklinkItem[]) => void;
+
+  activeComments: ActiveCommentItem[];
+  setActiveComments: (items: ActiveCommentItem[]) => void;
+
+  activeSelectedBlock: SelectedEditorBlock | null;
+  setActiveSelectedBlock: (block: SelectedEditorBlock | null) => void;
 }
 
 export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
@@ -104,9 +140,18 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
   liveCollaborators: [],
   setLiveCollaborators: (users) => set({ liveCollaborators: users }),
 
+  activePageId: null,
+  setActivePageId: (id) => set({ activePageId: id }),
+
   activePageTitle: null,
   setActivePageTitle: (title) => set({ activePageTitle: title }),
 
   activeBacklinks: [],
   setActiveBacklinks: (items) => set({ activeBacklinks: items }),
+
+  activeComments: [],
+  setActiveComments: (items) => set({ activeComments: items }),
+
+  activeSelectedBlock: null,
+  setActiveSelectedBlock: (block) => set({ activeSelectedBlock: block }),
 }));

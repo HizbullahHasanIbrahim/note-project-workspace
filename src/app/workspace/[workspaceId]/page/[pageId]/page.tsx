@@ -2,12 +2,22 @@ import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq, ne, or } from "drizzle-orm";
 import { db } from "@/db";
-import { pageRelations, pages, users, workspaceMembers } from "@/db/schema";
+import {
+  comments,
+  pageRelations,
+  pages,
+  tasks,
+  users,
+  workspaceMembers,
+} from "@/db/schema";
 import { createCollabToken, getCurrentUser } from "@/lib/auth";
 import { canEditTeamspace } from "@/lib/permissions";
 import CollaborativeEditor from "@/components/editor/CollaborativeEditor";
 import { PageTitleHeader } from "@/components/editor/PageTitleHeader";
-import type { ActiveBacklinkItem } from "@/stores/useWorkspaceUIStore";
+import type {
+  ActiveBacklinkItem,
+  ActiveCommentItem,
+} from "@/stores/useWorkspaceUIStore";
 
 interface PageViewProps {
   params: Promise<{ workspaceId: string; pageId: string }>;
@@ -102,12 +112,15 @@ async function AsyncPageView({ params }: PageViewProps) {
       linkedPageId: pages.id,
       title: pages.title,
       icon: pages.icon,
+      pageType: pages.pageType,
       spaceType: pages.spaceType,
       createdBy: pages.createdBy,
       isArchived: pages.isArchived,
+      databasePageId: tasks.databasePageId,
     })
     .from(pageRelations)
     .innerJoin(pages, eq(pageRelations.sourcePageId, pages.id))
+    .leftJoin(tasks, eq(tasks.detailPageId, pages.id))
     .where(
       and(
         eq(pageRelations.targetPageId, pageId),
@@ -123,12 +136,15 @@ async function AsyncPageView({ params }: PageViewProps) {
       linkedPageId: pages.id,
       title: pages.title,
       icon: pages.icon,
+      pageType: pages.pageType,
       spaceType: pages.spaceType,
       createdBy: pages.createdBy,
       isArchived: pages.isArchived,
+      databasePageId: tasks.databasePageId,
     })
     .from(pageRelations)
     .innerJoin(pages, eq(pageRelations.targetPageId, pages.id))
+    .leftJoin(tasks, eq(tasks.detailPageId, pages.id))
     .where(
       and(
         eq(pageRelations.sourcePageId, pageId),
@@ -152,6 +168,8 @@ async function AsyncPageView({ params }: PageViewProps) {
       icon: isPrivateMasked ? null : row.icon,
       isPrivateMasked,
       spaceType: row.spaceType,
+      pageType: isPrivateMasked ? undefined : row.pageType,
+      databasePageId: isPrivateMasked ? null : row.databasePageId,
     };
   };
 
@@ -160,7 +178,39 @@ async function AsyncPageView({ params }: PageViewProps) {
     ...outgoingRows.map((r) => mapBacklinkRow(r, "outgoing")),
   ];
 
-  // 6. Token otorisasi WebSocket jangka pendek untuk Hocuspocus
+  // 6. Ambil daftar komentar halaman ini beserta status blok orphaned (PRD §8.1)
+  const rawCommentRows = await db
+    .select({
+      id: comments.id,
+      pageId: comments.pageId,
+      blockId: comments.blockId,
+      isBlockDeleted: comments.isBlockDeleted,
+      authorId: comments.authorId,
+      authorName: users.fullName,
+      parentCommentId: comments.parentCommentId,
+      content: comments.content,
+      isResolved: comments.isResolved,
+      createdAt: comments.createdAt,
+    })
+    .from(comments)
+    .innerJoin(users, eq(comments.authorId, users.id))
+    .where(eq(comments.pageId, pageId))
+    .orderBy(asc(comments.createdAt));
+
+  const initialComments: ActiveCommentItem[] = rawCommentRows.map((c) => ({
+    id: c.id,
+    pageId: c.pageId,
+    blockId: c.blockId,
+    isBlockDeleted: c.isBlockDeleted,
+    authorId: c.authorId,
+    authorName: c.authorName,
+    parentCommentId: c.parentCommentId,
+    content: c.content,
+    isResolved: c.isResolved,
+    createdAtIso: c.createdAt.toISOString(),
+  }));
+
+  // 7. Token otorisasi WebSocket jangka pendek untuk Hocuspocus
   const collabToken = createCollabToken({
     id: currentUser.id,
     email: currentUser.email,
@@ -198,6 +248,7 @@ async function AsyncPageView({ params }: PageViewProps) {
           pageType: p.pageType,
         }))}
         initialBacklinks={initialBacklinks}
+        initialComments={initialComments}
       />
     </div>
   );

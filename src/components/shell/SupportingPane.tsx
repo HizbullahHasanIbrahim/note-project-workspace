@@ -1,33 +1,135 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  MessageSquare,
-  Link2,
-  History,
-  Send,
   AlertCircle,
-  Lock,
-  ArrowUpRight,
   ArrowDownLeft,
+  AtSign,
+  CheckCircle2,
+  History,
+  Link2,
+  Lock,
+  MessageSquare,
+  Reply,
+  RotateCcw,
+  Send,
+  X,
 } from "lucide-react";
-import { useWorkspaceUIStore } from "@/stores/useWorkspaceUIStore";
+import {
+  createCommentAction,
+  resolveCommentAction,
+} from "@/app/workspace/[workspaceId]/comment-actions";
+import { canComment, type WorkspaceRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import {
+  useWorkspaceUIStore,
+  type ActiveCommentItem,
+  type WorkspaceMemberSummary,
+} from "@/stores/useWorkspaceUIStore";
 
 interface SupportingPaneProps {
   workspaceId: string;
+  userRole: WorkspaceRole;
+  currentUserId: string;
+  members: WorkspaceMemberSummary[];
 }
 
-export function SupportingPane({ workspaceId }: SupportingPaneProps) {
+function formatShortTime(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("id-ID", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Merender teks komentar dengan menyorot @mention anggota workspace menggunakan token semantik M3.
+ */
+function renderCommentContent(
+  text: string,
+  members: WorkspaceMemberSummary[]
+): React.ReactNode {
+  const handles = members
+    .map((m) => `@${m.fullName.trim()}`)
+    .filter((h) => h.length > 1)
+    .sort((a, b) => b.length - a.length);
+
+  if (handles.length === 0) return text;
+
+  const escapedHandles = handles.map((h) =>
+    h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  );
+  const regex = new RegExp(`(${escapedHandles.join("|")})`, "gi");
+  const parts = text.split(regex);
+
+  return parts.map((part, idx) => {
+    const isMention = handles.some(
+      (h) => h.toLowerCase() === part.toLowerCase()
+    );
+    if (isMention) {
+      return (
+        <span
+          key={idx}
+          className="inline-block px-1.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-medium text-[11px]"
+        >
+          {part}
+        </span>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
+export function SupportingPane({
+  workspaceId,
+  userRole,
+  members,
+}: SupportingPaneProps) {
+  const router = useRouter();
   const {
     isSupportingPaneOpen,
     activeSupportingTab,
     setActiveSupportingTab,
     activeBacklinks,
+    activePageId,
+    activeComments,
+    setActiveComments,
+    activeSelectedBlock,
+    setActiveSelectedBlock,
   } = useWorkspaceUIStore();
 
   const [newComment, setNewComment] = useState("");
+  const [replyToComment, setReplyToComment] =
+    useState<ActiveCommentItem | null>(null);
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [mentionedIds, setMentionedIds] = useState<string[]>([]);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [isPendingComment, startCommentTransition] = useTransition();
+
+  const userCanWriteComment = canComment(userRole);
+
+  // Kelompokkan komentar menjadi utas induk beserta balasan berurutan
+  const commentThreads = useMemo(() => {
+    const roots = activeComments.filter((c) => !c.parentCommentId);
+    const repliesMap = new Map<string, ActiveCommentItem[]>();
+    for (const c of activeComments) {
+      if (!c.parentCommentId) continue;
+      const list = repliesMap.get(c.parentCommentId) ?? [];
+      list.push(c);
+      repliesMap.set(c.parentCommentId, list);
+    }
+    return roots.map((root) => ({
+      root,
+      replies: repliesMap.get(root.id) ?? [],
+    }));
+  }, [activeComments]);
 
   if (!isSupportingPaneOpen) return null;
 
@@ -37,6 +139,90 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
   const outgoingLinks = activeBacklinks.filter(
     (b) => b.direction === "outgoing"
   );
+
+  const insertMention = (member: WorkspaceMemberSummary) => {
+    const handle = `@${member.fullName}`;
+    setNewComment((prev) => {
+      const separator = prev.length > 0 && !prev.endsWith(" ") ? " " : "";
+      return `${prev}${separator}${handle} `;
+    });
+    setMentionedIds((prev) =>
+      prev.includes(member.userId) ? prev : [...prev, member.userId]
+    );
+    setShowMentionPicker(false);
+  };
+
+  const handleSubmitComment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userCanWriteComment || !activePageId || isPendingComment) return;
+    const trimmed = newComment.trim();
+    if (!trimmed) return;
+
+    setCommentError(null);
+    startCommentTransition(async () => {
+      const res = await createCommentAction({
+        workspaceId,
+        pageId: activePageId,
+        blockId: replyToComment
+          ? replyToComment.blockId
+          : activeSelectedBlock?.id ?? null,
+        parentCommentId: replyToComment?.id ?? null,
+        content: trimmed,
+        mentionedUserIds: mentionedIds,
+      });
+
+      if (!res.success || !res.comment) {
+        setCommentError(res.error ?? "Gagal mengirim komentar.");
+        return;
+      }
+
+      setActiveComments([...activeComments, res.comment]);
+      setNewComment("");
+      setReplyToComment(null);
+      setMentionedIds([]);
+      setShowMentionPicker(false);
+      router.refresh();
+    });
+  };
+
+  const handleToggleResolve = (comment: ActiveCommentItem) => {
+    if (!userCanWriteComment || !activePageId) return;
+    const nextResolved = !comment.isResolved;
+    const prevComments = activeComments;
+    setCommentError(null);
+
+    setActiveComments(
+      activeComments.map((c) =>
+        c.id === comment.id ? { ...c, isResolved: nextResolved } : c
+      )
+    );
+
+    startCommentTransition(async () => {
+      const res = await resolveCommentAction({
+        workspaceId,
+        pageId: activePageId,
+        commentId: comment.id,
+        isResolved: nextResolved,
+      });
+
+      if (!res.success) {
+        setActiveComments(prevComments);
+        setCommentError(res.error ?? "Gagal mengubah status komentar.");
+        return;
+      }
+      router.refresh();
+    });
+  };
+
+  const resolveBacklinkHref = (item: (typeof activeBacklinks)[number]) => {
+    if (item.pageType === "task_item" && item.databasePageId) {
+      return `/workspace/${workspaceId}/database/${item.databasePageId}?task=${item.pageId}`;
+    }
+    if (item.pageType === "database") {
+      return `/workspace/${workspaceId}/database/${item.pageId}`;
+    }
+    return `/workspace/${workspaceId}/page/${item.pageId}`;
+  };
 
   return (
     <aside
@@ -54,13 +240,13 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
             type="button"
             onClick={() => setActiveSupportingTab("comments")}
             className={cn(
-              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all",
+              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
               activeSupportingTab === "comments"
                 ? "bg-secondary-container text-on-secondary-container shadow-sm"
                 : "text-on-surface-variant hover:text-on-surface"
             )}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
+            <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Komentar</span>
           </button>
 
@@ -68,13 +254,13 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
             type="button"
             onClick={() => setActiveSupportingTab("backlinks")}
             className={cn(
-              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all",
+              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
               activeSupportingTab === "backlinks"
                 ? "bg-secondary-container text-on-secondary-container shadow-sm"
                 : "text-on-surface-variant hover:text-on-surface"
             )}
           >
-            <Link2 className="w-3.5 h-3.5" />
+            <Link2 className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Backlinks</span>
           </button>
 
@@ -82,76 +268,150 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
             type="button"
             onClick={() => setActiveSupportingTab("history")}
             className={cn(
-              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all",
+              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
               activeSupportingTab === "history"
                 ? "bg-secondary-container text-on-secondary-container shadow-sm"
                 : "text-on-surface-variant hover:text-on-surface"
             )}
           >
-            <History className="w-3.5 h-3.5" />
+            <History className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Riwayat</span>
           </button>
         </div>
       </div>
 
       {/* Konten Tab */}
-      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 select-text">
         {activeSupportingTab === "comments" && (
           <div className="flex flex-col gap-3">
-            <span className="text-label-medium text-on-surface-variant font-semibold px-1">
-              Utas Komentar Aktif
-            </span>
-
-            {/* Contoh Komentar Terkait Blok */}
-            <div className="p-3.5 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center">
-                    R
-                  </div>
-                  <span className="text-xs font-semibold text-on-surface">
-                    Raka Pratama
-                  </span>
-                </div>
-                <span className="text-[10px] text-on-surface-variant">
-                  5m lalu
-                </span>
-              </div>
-
-              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container text-[11px] font-medium w-fit">
-                <span>Blok Terikat</span>
-              </div>
-
-              <p className="text-body-medium text-on-surface text-xs leading-relaxed">
-                Gunakan pemicu [[ untuk menautkan dokumen lain secara otomatis ke panel Backlinks.
-              </p>
+            <div className="flex items-center justify-between px-1">
+              <span className="text-label-medium text-on-surface-variant font-semibold">
+                Utas Komentar ({commentThreads.length})
+              </span>
             </div>
 
-            {/* Penanda Komentar Orphaned Sesuai PRD §8.1 */}
-            <div className="p-3.5 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2 opacity-85">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-tertiary text-on-tertiary text-[10px] font-bold flex items-center justify-center">
-                    N
+            {commentError && (
+              <div
+                role="alert"
+                className="p-3 rounded-2xl bg-error-container text-on-error-container text-xs flex items-center gap-2"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>{commentError}</span>
+              </div>
+            )}
+
+            {!activePageId ? (
+              <div className="p-3.5 rounded-2xl bg-surface-container text-xs text-on-surface-variant">
+                Buka sebuah halaman dokumen untuk melihat dan menambahkan utas
+                komentar inline.
+              </div>
+            ) : commentThreads.length === 0 ? (
+              <div className="p-3.5 rounded-2xl bg-surface-container text-xs text-on-surface-variant">
+                Belum ada komentar di halaman ini. Klik sebuah blok paragraf di
+                editor lalu tulis komentar atau gunakan @mention.
+              </div>
+            ) : (
+              commentThreads.map(({ root, replies }) => (
+                <div
+                  key={root.id}
+                  className={cn(
+                    "p-3.5 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2.5",
+                    root.isResolved && "opacity-70"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {root.authorName.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-xs font-semibold text-on-surface truncate">
+                        {root.authorName}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-on-surface-variant shrink-0">
+                      {formatShortTime(root.createdAtIso)}
+                    </span>
                   </div>
-                  <span className="text-xs font-semibold text-on-surface">
-                    Nadia Kusuma
-                  </span>
+
+                  {/* Badge penanda blok terikat atau blok referensi telah dihapus (PRD §8.1) */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {root.blockId && root.isBlockDeleted && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-error-container text-on-error-container text-[11px] font-medium w-fit">
+                        <AlertCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        <span>Blok referensi telah dihapus</span>
+                      </div>
+                    )}
+                    {root.blockId && !root.isBlockDeleted && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container text-[11px] font-medium w-fit">
+                        <span>Blok Terikat</span>
+                      </div>
+                    )}
+                    {root.isResolved && (
+                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[11px] font-medium">
+                        <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        <span>Selesai</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-on-surface leading-relaxed whitespace-pre-wrap break-words">
+                    {renderCommentContent(root.content, members)}
+                  </p>
+
+                  {/* Balasan utas */}
+                  {replies.length > 0 && (
+                    <div className="flex flex-col gap-2 mt-1 pl-3 border-l-2 border-outline-variant/60">
+                      {replies.map((reply) => (
+                        <div key={reply.id} className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold text-on-surface">
+                              {reply.authorName}
+                            </span>
+                            <span className="text-[10px] text-on-surface-variant">
+                              {formatShortTime(reply.createdAtIso)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-on-surface-variant leading-relaxed whitespace-pre-wrap break-words">
+                            {renderCommentContent(reply.content, members)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {userCanWriteComment && (
+                    <div className="flex items-center justify-between pt-1 border-t border-outline-variant/30">
+                      <button
+                        type="button"
+                        onClick={() => setReplyToComment(root)}
+                        className="min-h-[36px] px-2.5 rounded-full inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors cursor-pointer"
+                      >
+                        <Reply className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Balas</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleResolve(root)}
+                        className="min-h-[36px] px-2.5 rounded-full inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                      >
+                        {root.isResolved ? (
+                          <>
+                            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Buka lagi</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Selesaikan</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <span className="text-[10px] text-on-surface-variant">
-                  1j lalu
-                </span>
-              </div>
-
-              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-error-container text-on-error-container text-[11px] font-medium w-fit">
-                <AlertCircle className="w-3 h-3" />
-                <span>Blok referensi telah dihapus</span>
-              </div>
-
-              <p className="text-body-medium text-on-surface text-xs leading-relaxed">
-                Komentar lama tetap dipertahankan meski blok aslinya sudah dihapus.
-              </p>
-            </div>
+              ))
+            )}
           </div>
         )}
 
@@ -160,7 +420,7 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
             {/* Backlinks Masuk */}
             <div className="flex flex-col gap-2">
               <span className="text-label-medium text-on-surface-variant font-semibold px-1 flex items-center gap-1.5">
-                <ArrowDownLeft className="w-3.5 h-3.5 text-primary" />
+                <ArrowDownLeft className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
                 Menautkan ke Halaman Ini ({incomingBacklinks.length})
               </span>
 
@@ -175,13 +435,13 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
                       key={item.id}
                       className="p-3 rounded-2xl bg-surface-container border border-outline-variant/40 flex items-center gap-2 text-xs text-on-surface-variant"
                     >
-                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <Lock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                       <span className="font-medium">[Halaman Privat]</span>
                     </div>
                   ) : (
                     <Link
                       key={item.id}
-                      href={`/workspace/${workspaceId}/page/${item.pageId}`}
+                      href={resolveBacklinkHref(item)}
                       className="p-3 rounded-2xl bg-card-surface border border-outline-variant/40 hover:border-primary/50 transition-colors flex items-center justify-between gap-2 text-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -203,9 +463,8 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
 
             {/* Tautan Keluar */}
             <div className="flex flex-col gap-2">
-              <span className="text-label-medium text-on-surface-variant font-semibold px-1 flex items-center gap-1.5">
-                <ArrowUpRight className="w-3.5 h-3.5 text-secondary" />
-                Tautan dari Halaman Ini ({outgoingLinks.length})
+              <span className="text-label-medium text-on-surface-variant font-semibold px-1">
+                Tautan Keluar ({outgoingLinks.length})
               </span>
 
               {outgoingLinks.length === 0 ? (
@@ -219,13 +478,13 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
                       key={item.id}
                       className="p-3 rounded-2xl bg-surface-container border border-outline-variant/40 flex items-center gap-2 text-xs text-on-surface-variant"
                     >
-                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <Lock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                       <span className="font-medium">[Halaman Privat]</span>
                     </div>
                   ) : (
                     <Link
                       key={item.id}
-                      href={`/workspace/${workspaceId}/page/${item.pageId}`}
+                      href={resolveBacklinkHref(item)}
                       className="p-3 rounded-2xl bg-card-surface border border-outline-variant/40 hover:border-primary/50 transition-colors flex items-center justify-between gap-2 text-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -270,40 +529,136 @@ export function SupportingPane({ workspaceId }: SupportingPaneProps) {
         )}
       </div>
 
-      {/* Input Balasan Komentar di Bawah */}
-      {activeSupportingTab === "comments" && (
-        <div className="p-3 border-t border-outline-variant/30 bg-surface-container">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!newComment.trim()) return;
-              setNewComment("");
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Tulis balasan atau gunakan @..."
-              className={cn(
-                "flex-1 h-11 px-3.5 rounded-xl bg-surface-container-highest",
-                "text-on-surface placeholder:text-on-surface-variant text-xs",
-                "border border-outline-variant focus:border-primary focus-visible:ring-1 focus-visible:ring-primary outline-none"
+      {/* Input Komentar & Mention di Bawah */}
+      {activeSupportingTab === "comments" && activePageId && (
+        <div className="p-3 border-t border-outline-variant/30 bg-surface-container flex flex-col gap-2 relative">
+          {!userCanWriteComment ? (
+            <p className="text-xs text-on-surface-variant px-1 py-1">
+              Mode Read-Only: Peran Viewer tidak dapat menambahkan komentar.
+            </p>
+          ) : (
+            <>
+              {/* Indikator target balasan / blok terpilih */}
+              {replyToComment ? (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-secondary-container/70 text-on-secondary-container text-[11px]">
+                  <span className="truncate">
+                    Membalas <strong>{replyToComment.authorName}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setReplyToComment(null)}
+                    aria-label="Batalkan balasan utas"
+                    className="p-0.5 rounded-full hover:bg-on-secondary-container/10 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                activeSelectedBlock && (
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-tertiary-container/70 text-on-tertiary-container text-[11px]">
+                    <span className="truncate">
+                      Terikat blok:{" "}
+                      <em>
+                        &ldquo;
+                        {activeSelectedBlock.preview ||
+                          activeSelectedBlock.id.slice(0, 8)}
+                        &rdquo;
+                      </em>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSelectedBlock(null)}
+                      aria-label="Lepas ikatan blok dan tulis komentar umum halaman"
+                      className="p-0.5 rounded-full hover:bg-on-tertiary-container/10 cursor-pointer shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                )
               )}
-            />
-            <button
-              type="submit"
-              aria-label="Kirim balasan komentar"
-              className={cn(
-                "min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center",
-                "bg-primary text-on-primary hover:brightness-95 transition-all",
-                "focus-visible:ring-2 focus-visible:ring-outline outline-none shrink-0"
+
+              {/* Picker @mention anggota */}
+              {showMentionPicker && members.length > 0 && (
+                <div
+                  role="listbox"
+                  aria-label="Pilih anggota untuk di-mention"
+                  className="rounded-xl bg-surface-container-highest border border-outline-variant/60 shadow-lg max-h-40 overflow-y-auto p-1 flex flex-col gap-0.5"
+                >
+                  {members.map((member) => (
+                    <button
+                      key={member.userId}
+                      type="button"
+                      onClick={() => insertMention(member)}
+                      className="min-h-[36px] px-2.5 py-1.5 rounded-lg text-left text-xs text-on-surface hover:bg-secondary-container hover:text-on-secondary-container flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                      <span className="font-medium truncate">
+                        {member.fullName}
+                      </span>
+                      <span className="text-[10px] text-on-surface-variant capitalize">
+                        {member.role}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
+
+              <form
+                onSubmit={handleSubmitComment}
+                className="flex items-center gap-1.5"
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowMentionPicker((prev) => !prev)}
+                  aria-label="Sematkan sebutan anggota (@mention)"
+                  className={cn(
+                    "min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer",
+                    showMentionPicker
+                      ? "bg-secondary-container text-on-secondary-container"
+                      : "hover:bg-surface-container-highest text-on-surface-variant"
+                  )}
+                >
+                  <AtSign className="w-4 h-4" aria-hidden="true" />
+                </button>
+
+                <input
+                  type="text"
+                  value={newComment}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewComment(val);
+                    if (val.endsWith("@")) {
+                      setShowMentionPicker(true);
+                    }
+                  }}
+                  placeholder={
+                    replyToComment
+                      ? "Tulis balasan komentar..."
+                      : activeSelectedBlock
+                      ? "Komentari blok ini (@mention)..."
+                      : "Tulis komentar halaman (@mention)..."
+                  }
+                  className={cn(
+                    "flex-1 min-w-0 h-11 px-3 rounded-xl bg-surface-container-highest",
+                    "text-on-surface placeholder:text-on-surface-variant text-xs",
+                    "border border-outline-variant focus:border-primary focus-visible:ring-1 focus-visible:ring-primary outline-none"
+                  )}
+                />
+
+                <button
+                  type="submit"
+                  disabled={!newComment.trim() || isPendingComment}
+                  aria-label="Kirim komentar"
+                  className={cn(
+                    "min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0",
+                    "bg-primary text-on-primary hover:brightness-95 transition-all disabled:opacity-50",
+                    "focus-visible:ring-2 focus-visible:ring-outline outline-none cursor-pointer"
+                  )}
+                >
+                  <Send className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </form>
+            </>
+          )}
         </div>
       )}
     </aside>

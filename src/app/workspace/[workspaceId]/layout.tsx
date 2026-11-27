@@ -245,12 +245,13 @@ async function AsyncWorkspaceShell({
           currentUserId={currentUser.id}
           teamspacePages={teamspacePages}
           privatePages={privatePages}
+          unreadMentionsCount={unreadMentions.filter((m) => !m.isRead).length}
         />
 
         {/* Kanvas Utama Dokumen */}
         <main
           aria-label="Area Kerja Utama"
-          className="flex-1 min-w-0 bg-surface-container-lowest rounded-tl-2xl border-t border-l border-outline-variant/30 overflow-y-auto"
+          className="flex-1 min-w-0 bg-surface-container-lowest md:rounded-tl-2xl border-t md:border-l border-outline-variant/30 overflow-y-auto pb-24 md:pb-0"
         >
           {children}
         </main>

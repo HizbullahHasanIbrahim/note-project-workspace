@@ -48,10 +48,24 @@ export interface SelectedEditorBlock {
   preview: string;
 }
 
+export interface ActiveVersionItem {
+  id: string;
+  pageId: string;
+  titleSnapshot: string;
+  createdBy: string;
+  authorName: string;
+  createdAtIso: string;
+  snapshotBytes: number;
+}
+
 interface WorkspaceUIState {
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+
+  isMobileDrawerOpen: boolean;
+  setMobileDrawerOpen: (open: boolean) => void;
+  toggleMobileDrawer: () => void;
 
   isSupportingPaneOpen: boolean;
   toggleSupportingPane: () => void;
@@ -89,12 +103,20 @@ interface WorkspaceUIState {
 
   activeSelectedBlock: SelectedEditorBlock | null;
   setActiveSelectedBlock: (block: SelectedEditorBlock | null) => void;
+
+  activeVersions: ActiveVersionItem[];
+  setActiveVersions: (items: ActiveVersionItem[]) => void;
 }
 
 export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
   isSidebarOpen: true,
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+
+  isMobileDrawerOpen: false,
+  setMobileDrawerOpen: (open) => set({ isMobileDrawerOpen: open }),
+  toggleMobileDrawer: () =>
+    set((state) => ({ isMobileDrawerOpen: !state.isMobileDrawerOpen })),
 
   isSupportingPaneOpen: true,
   toggleSupportingPane: () =>
@@ -154,4 +176,7 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
 
   activeSelectedBlock: null,
   setActiveSelectedBlock: (block) => set({ activeSelectedBlock: block }),
+
+  activeVersions: [],
+  setActiveVersions: (items) => set({ activeVersions: items }),
 }));

@@ -28,6 +28,7 @@ import type {
   DatabaseMemberOption,
   DatabaseTaskItem,
   LinkableDatabasePageOption,
+  TaskAttachmentItem,
 } from "./task-types";
 
 interface TaskDatabaseWorkspaceProps {
@@ -174,6 +175,7 @@ export function TaskDatabaseWorkspace({
           dueDate: newDueDate || null,
           positionOrder: maxPos + 1000,
           linkedPages: [],
+          attachments: [],
         },
       ]);
 
@@ -643,6 +645,31 @@ export function TaskDatabaseWorkspace({
         onDeleteTask={handleDeleteTask}
         onLinkNote={handleLinkNote}
         onUnlinkNote={handleUnlinkNote}
+        onAttachmentAdded={(taskId, attachment) => {
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId
+                ? { ...t, attachments: [attachment, ...t.attachments] }
+                : t
+            )
+          );
+          router.refresh();
+        }}
+        onAttachmentRemoved={(taskId, attachmentId) => {
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId
+                ? {
+                    ...t,
+                    attachments: t.attachments.filter(
+                      (a) => a.id !== attachmentId
+                    ),
+                  }
+                : t
+            )
+          );
+          router.refresh();
+        }}
       />
     </div>
   );

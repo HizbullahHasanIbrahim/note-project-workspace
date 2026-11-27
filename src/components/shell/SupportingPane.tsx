@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Reply,
   RotateCcw,
+  Save,
   Send,
   X,
 } from "lucide-react";
@@ -21,11 +22,17 @@ import {
   createCommentAction,
   resolveCommentAction,
 } from "@/app/workspace/[workspaceId]/comment-actions";
-import { canComment, type WorkspaceRole } from "@/lib/permissions";
+import {
+  createPageVersionAction,
+  restorePageVersionAction,
+} from "@/app/workspace/[workspaceId]/version-actions";
+import { formatBytesCompact } from "@/lib/attachments";
+import { canComment, canEditTeamspace, type WorkspaceRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import {
   useWorkspaceUIStore,
   type ActiveCommentItem,
+  type ActiveVersionItem,
   type WorkspaceMemberSummary,
 } from "@/stores/useWorkspaceUIStore";
 
@@ -95,6 +102,7 @@ export function SupportingPane({
   const router = useRouter();
   const {
     isSupportingPaneOpen,
+    setSupportingPaneOpen,
     activeSupportingTab,
     setActiveSupportingTab,
     activeBacklinks,
@@ -103,6 +111,9 @@ export function SupportingPane({
     setActiveComments,
     activeSelectedBlock,
     setActiveSelectedBlock,
+    activeVersions,
+    setActiveVersions,
+    setActivePageTitle,
   } = useWorkspaceUIStore();
 
   const [newComment, setNewComment] = useState("");
@@ -111,9 +122,26 @@ export function SupportingPane({
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [versionFeedback, setVersionFeedback] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [isPendingComment, startCommentTransition] = useTransition();
+  const [isPendingVersion, startVersionTransition] = useTransition();
 
   const userCanWriteComment = canComment(userRole);
+  const userCanEditPage = canEditTeamspace(userRole);
+
+  // Tutup Supporting Pane otomatis saat pertama dimuat di tablet/mobile agar kanvas penuh terbaca
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      setSupportingPaneOpen(false);
+    }
+  }, [setSupportingPaneOpen]);
+
+  useEffect(() => {
+    setVersionFeedback(null);
+  }, [activePageId]);
 
   // Kelompokkan komentar menjadi utas induk beserta balasan berurutan
   const commentThreads = useMemo(() => {
@@ -224,61 +252,142 @@ export function SupportingPane({
     return `/workspace/${workspaceId}/page/${item.pageId}`;
   };
 
+  const handleSaveVersionSnapshot = () => {
+    if (!userCanEditPage || !activePageId || isPendingVersion) return;
+    setVersionFeedback(null);
+    startVersionTransition(async () => {
+      const res = await createPageVersionAction({
+        workspaceId,
+        pageId: activePageId,
+      });
+      if (!res.success || !res.version) {
+        setVersionFeedback({
+          type: "error",
+          text: res.error ?? "Gagal menyimpan snapshot versi halaman.",
+        });
+        return;
+      }
+      setActiveVersions([res.version, ...activeVersions]);
+      setVersionFeedback({
+        type: "success",
+        text: "Snapshot versi berhasil disimpan.",
+      });
+      router.refresh();
+    });
+  };
+
+  const handleRestoreVersion = (version: ActiveVersionItem) => {
+    if (!userCanEditPage || !activePageId || isPendingVersion) return;
+    setVersionFeedback(null);
+    startVersionTransition(async () => {
+      const res = await restorePageVersionAction({
+        workspaceId,
+        pageId: activePageId,
+        versionId: version.id,
+      });
+      if (!res.success) {
+        setVersionFeedback({
+          type: "error",
+          text: res.error ?? "Gagal memulihkan versi halaman.",
+        });
+        return;
+      }
+
+      if (res.restoredTitle) {
+        setActivePageTitle(res.restoredTitle);
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("npw:restore-version", {
+            detail: {
+              pageId: activePageId,
+              crdtBase64: res.restoredCrdtBase64 ?? null,
+            },
+          })
+        );
+      }
+
+      setVersionFeedback({
+        type: "success",
+        text: `Versi "${version.titleSnapshot}" berhasil dipulihkan.`,
+      });
+      router.refresh();
+    });
+  };
+
   return (
-    <aside
-      aria-label="Panel Pendukung (Supporting Pane)"
-      className={cn(
-        "w-[340px] shrink-0 h-full flex flex-col justify-between",
-        "bg-surface-container-high border-l border-outline-variant/30 select-none",
-        "transition-all duration-200"
-      )}
+    <div
+      className="fixed inset-0 z-40 bg-scrim/40 flex justify-end lg:static lg:inset-auto lg:z-auto lg:bg-transparent lg:block"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          setSupportingPaneOpen(false);
+        }
+      }}
     >
-      {/* Tab Navigasi Segmented */}
-      <div className="p-3 border-b border-outline-variant/30">
-        <div className="grid grid-cols-3 p-1 rounded-full bg-surface-container gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveSupportingTab("comments")}
-            className={cn(
-              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
-              activeSupportingTab === "comments"
-                ? "bg-secondary-container text-on-secondary-container shadow-sm"
-                : "text-on-surface-variant hover:text-on-surface"
-            )}
-          >
-            <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Komentar</span>
-          </button>
+      <aside
+        aria-label="Panel Pendukung (Supporting Pane)"
+        className={cn(
+          "w-full max-w-[340px] lg:w-[340px] shrink-0 h-full flex flex-col justify-between",
+          "bg-surface-container-high border-l border-outline-variant/30 select-none shadow-2xl lg:shadow-none",
+          "transition-all duration-200"
+        )}
+      >
+        {/* Tab Navigasi Segmented & Tombol Tutup Tablet/Mobile */}
+        <div className="p-3 border-b border-outline-variant/30 flex items-center gap-2">
+          <div className="flex-1 grid grid-cols-3 p-1 rounded-full bg-surface-container gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveSupportingTab("comments")}
+              className={cn(
+                "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                activeSupportingTab === "comments"
+                  ? "bg-secondary-container text-on-secondary-container shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              )}
+            >
+              <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Komentar</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSupportingTab("backlinks")}
+              className={cn(
+                "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                activeSupportingTab === "backlinks"
+                  ? "bg-secondary-container text-on-secondary-container shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              )}
+            >
+              <Link2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Backlinks</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSupportingTab("history")}
+              className={cn(
+                "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                activeSupportingTab === "history"
+                  ? "bg-secondary-container text-on-secondary-container shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              )}
+            >
+              <History className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Riwayat</span>
+            </button>
+          </div>
 
           <button
             type="button"
-            onClick={() => setActiveSupportingTab("backlinks")}
-            className={cn(
-              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
-              activeSupportingTab === "backlinks"
-                ? "bg-secondary-container text-on-secondary-container shadow-sm"
-                : "text-on-surface-variant hover:text-on-surface"
-            )}
+            onClick={() => setSupportingPaneOpen(false)}
+            aria-label="Tutup panel pendukung"
+            className="lg:hidden min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest cursor-pointer"
           >
-            <Link2 className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Backlinks</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSupportingTab("history")}
-            className={cn(
-              "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
-              activeSupportingTab === "history"
-                ? "bg-secondary-container text-on-secondary-container shadow-sm"
-                : "text-on-surface-variant hover:text-on-surface"
-            )}
-          >
-            <History className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Riwayat</span>
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
-      </div>
 
       {/* Konten Tab */}
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 select-text">
@@ -506,25 +615,94 @@ export function SupportingPane({
 
         {activeSupportingTab === "history" && (
           <div className="flex flex-col gap-3">
-            <span className="text-label-medium text-on-surface-variant font-semibold px-1">
-              Riwayat Perubahan Dokumen
-            </span>
-
-            <div className="flex flex-col gap-2">
-              <div className="p-3 rounded-xl bg-card-surface border border-outline-variant/40 flex items-center justify-between text-xs">
-                <div className="flex flex-col">
-                  <span className="font-semibold text-on-surface">
-                    Snapshot CRDT Terbaru
-                  </span>
-                  <span className="text-[11px] text-on-surface-variant">
-                    Tersimpan otomatis via Yjs
-                  </span>
-                </div>
-                <span className="text-[11px] text-primary font-medium">
-                  Aktif
-                </span>
-              </div>
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="text-label-medium text-on-surface-variant font-semibold">
+                Riwayat Versi ({activeVersions.length})
+              </span>
             </div>
+
+            {activePageId && userCanEditPage && (
+              <button
+                type="button"
+                disabled={isPendingVersion}
+                onClick={handleSaveVersionSnapshot}
+                className="min-h-[44px] w-full px-4 rounded-full bg-secondary-container text-on-secondary-container text-xs font-semibold flex items-center justify-center gap-2 hover:brightness-95 transition-all disabled:opacity-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
+              >
+                <Save className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>
+                  {isPendingVersion
+                    ? "Menyimpan snapshot..."
+                    : "Simpan Snapshot Versi"}
+                </span>
+              </button>
+            )}
+
+            {versionFeedback && (
+              <div
+                role="status"
+                className={cn(
+                  "p-3 rounded-2xl text-xs flex items-center gap-2",
+                  versionFeedback.type === "error"
+                    ? "bg-error-container text-on-error-container"
+                    : "bg-primary-container text-on-primary-container"
+                )}
+              >
+                {versionFeedback.type === "error" ? (
+                  <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                )}
+                <span>{versionFeedback.text}</span>
+              </div>
+            )}
+
+            {!activePageId ? (
+              <div className="p-3.5 rounded-2xl bg-surface-container text-xs text-on-surface-variant">
+                Buka sebuah halaman dokumen untuk melihat dan memulihkan riwayat
+                snapshot versi.
+              </div>
+            ) : activeVersions.length === 0 ? (
+              <div className="p-3.5 rounded-2xl bg-surface-container text-xs text-on-surface-variant">
+                Belum ada snapshot tersimpan. Snapshot dibuat otomatis tiap 10
+                menit saat mengedit atau manual lewat tombol di atas.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {activeVersions.map((version) => (
+                  <div
+                    key={version.id}
+                    className="p-3.5 rounded-2xl bg-card-surface border border-outline-variant/40 flex flex-col gap-2.5 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-on-surface truncate">
+                          {version.titleSnapshot}
+                        </span>
+                        <span className="text-[11px] text-on-surface-variant truncate">
+                          {version.authorName} ·{" "}
+                          {formatShortTime(version.createdAtIso)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant shrink-0">
+                        {formatBytesCompact(version.snapshotBytes)}
+                      </span>
+                    </div>
+
+                    {userCanEditPage && (
+                      <button
+                        type="button"
+                        disabled={isPendingVersion}
+                        onClick={() => handleRestoreVersion(version)}
+                        className="min-h-[38px] px-3 rounded-full border border-outline text-primary font-medium text-[11px] inline-flex items-center justify-center gap-1.5 hover:bg-primary/10 transition-colors disabled:opacity-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Pulihkan Versi</span>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -661,6 +839,7 @@ export function SupportingPane({
           )}
         </div>
       )}
-    </aside>
+      </aside>
+    </div>
   );
 }

@@ -2,16 +2,17 @@
 
 import React, { useTransition } from "react";
 import {
+  ChevronRight,
+  Eye,
+  LogOut,
+  Menu,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Sun,
-  Moon,
   Share2,
-  LogOut,
-  ChevronRight,
-  Eye,
+  Sun,
   WifiOff,
 } from "lucide-react";
 import { useWorkspaceUIStore } from "@/stores/useWorkspaceUIStore";
@@ -41,6 +42,8 @@ export function Topbar({
   const {
     isSidebarOpen,
     toggleSidebar,
+    isMobileDrawerOpen,
+    toggleMobileDrawer,
     isSupportingPaneOpen,
     toggleSupportingPane,
     isDarkMode,
@@ -68,7 +71,27 @@ export function Topbar({
       )}
     >
       {/* Sisi Kiri: Buka/Tutup Sidebar & Breadcrumb */}
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {/* Tombol Modal Drawer khusus Tablet & Mobile (< 1024px) */}
+        <button
+          type="button"
+          onClick={toggleMobileDrawer}
+          aria-expanded={isMobileDrawerOpen}
+          aria-label={
+            isMobileDrawerOpen
+              ? "Tutup menu navigasi"
+              : "Buka menu navigasi halaman"
+          }
+          className={cn(
+            "lg:hidden min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center",
+            "hover:bg-surface-container-high text-on-surface transition-colors",
+            "focus-visible:ring-2 focus-visible:ring-outline outline-none cursor-pointer"
+          )}
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        {/* Tombol Toggle Sidebar Desktop (>= 1024px) */}
         <button
           type="button"
           onClick={toggleSidebar}
@@ -78,9 +101,9 @@ export function Topbar({
               : "Buka bilah sisi navigasi"
           }
           className={cn(
-            "min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center",
+            "hidden lg:flex min-h-[44px] min-w-[44px] rounded-full items-center justify-center",
             "hover:bg-surface-container-high text-on-surface transition-colors",
-            "focus-visible:ring-2 focus-visible:ring-outline outline-none"
+            "focus-visible:ring-2 focus-visible:ring-outline outline-none cursor-pointer"
           )}
         >
           {isSidebarOpen ? (
@@ -95,8 +118,8 @@ export function Topbar({
           aria-label="Jejak Navigasi"
           className="flex items-center gap-1.5 text-label-medium text-on-surface-variant truncate"
         >
-          <span className="truncate">Workspace</span>
-          <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden sm:inline truncate">Workspace</span>
+          <ChevronRight className="hidden sm:inline w-3.5 h-3.5 shrink-0" />
           <span className="text-on-surface font-semibold truncate">
             {displayedTitle}
           </span>
@@ -127,17 +150,17 @@ export function Topbar({
           {collabStatus === "offline" ? (
             <>
               <WifiOff className="w-3.5 h-3.5 text-error" />
-              <span>Offline — Menyambung ulang</span>
+              <span className="hidden sm:inline">Offline — Menyambung ulang</span>
             </>
           ) : collabStatus === "syncing" ? (
             <>
               <span className="w-2 h-2 rounded-full bg-tertiary animate-pulse" />
-              <span>Menyinkronkan...</span>
+              <span className="hidden sm:inline">Menyinkronkan...</span>
             </>
           ) : (
             <>
               <span className="w-2 h-2 rounded-full bg-primary" />
-              <span>Tersimpan</span>
+              <span className="hidden sm:inline">Tersimpan</span>
             </>
           )}
         </div>
@@ -145,7 +168,7 @@ export function Topbar({
         {/* Live Presence Avatars */}
         <div
           aria-label="Kolaborator aktif di dokumen ini"
-          className="flex items-center -space-x-1.5 pl-1"
+          className="hidden md:flex items-center -space-x-1.5 pl-1"
         >
           {displayedCollaborators.slice(0, 4).map((collab) => (
             <div
@@ -192,7 +215,7 @@ export function Topbar({
             type="button"
             aria-label="Bagikan halaman ini ke anggota tim"
             className={cn(
-              "min-h-[40px] px-4 rounded-full flex items-center gap-1.5",
+              "hidden sm:flex min-h-[40px] px-4 rounded-full items-center gap-1.5",
               "bg-primary text-on-primary text-label-large font-semibold",
               "hover:brightness-95 transition-all focus-visible:ring-2 focus-visible:ring-outline outline-none"
             )}

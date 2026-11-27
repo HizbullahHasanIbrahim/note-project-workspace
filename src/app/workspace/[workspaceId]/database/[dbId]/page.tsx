@@ -1,9 +1,16 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, eq, inArray, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { Lock } from "lucide-react";
 import { db } from "@/db";
-import { pageRelations, pages, tasks, users, workspaceMembers } from "@/db/schema";
+import {
+  attachments,
+  pageRelations,
+  pages,
+  tasks,
+  users,
+  workspaceMembers,
+} from "@/db/schema";
 import { createCollabToken, getCurrentUser } from "@/lib/auth";
 import { canEditTasks } from "@/lib/permissions";
 import { TaskDatabaseWorkspace } from "@/components/database/TaskDatabaseWorkspace";
@@ -13,6 +20,7 @@ import type {
   DatabaseTaskItem,
   LinkableDatabasePageOption,
   LinkedPageSummary,
+  TaskAttachmentItem,
 } from "@/components/database/task-types";
 
 interface DatabasePageProps {
@@ -167,6 +175,44 @@ async function AsyncDatabasePage({ params, searchParams }: DatabasePageProps) {
     }
   }
 
+  // 5b. Ambil daftar lampiran file per kartu tugas (detailPageId)
+  const attachmentsMap = new Map<string, TaskAttachmentItem[]>();
+  if (detailPageIds.length > 0) {
+    const attachmentRows = await db
+      .select({
+        id: attachments.id,
+        pageId: attachments.pageId,
+        fileName: attachments.fileName,
+        mimeType: attachments.mimeType,
+        fileSizeBytes: attachments.fileSizeBytes,
+        createdAt: attachments.createdAt,
+        uploaderName: users.fullName,
+      })
+      .from(attachments)
+      .innerJoin(users, eq(attachments.uploadedBy, users.id))
+      .where(
+        and(
+          eq(attachments.workspaceId, workspaceId),
+          inArray(attachments.pageId, detailPageIds)
+        )
+      )
+      .orderBy(desc(attachments.createdAt));
+
+    for (const att of attachmentRows) {
+      const list = attachmentsMap.get(att.pageId) ?? [];
+      list.push({
+        id: att.id,
+        fileName: att.fileName,
+        mimeType: att.mimeType,
+        fileSizeBytes: att.fileSizeBytes,
+        uploaderName: att.uploaderName,
+        createdAtIso: att.createdAt.toISOString(),
+        url: `/api/attachments/${att.id}`,
+      });
+      attachmentsMap.set(att.pageId, list);
+    }
+  }
+
   const initialTasks: DatabaseTaskItem[] = rawTasks.map((row) => ({
     id: row.id,
     databasePageId: row.databasePageId,
@@ -180,6 +226,7 @@ async function AsyncDatabasePage({ params, searchParams }: DatabasePageProps) {
     dueDate: formatDueDate(row.dueDate),
     positionOrder: row.positionOrder,
     linkedPages: linkedMap.get(row.detailPageId) ?? [],
+    attachments: attachmentsMap.get(row.detailPageId) ?? [],
   }));
 
   // 6. Ambil daftar anggota workspace untuk dropdown penanggung jawab

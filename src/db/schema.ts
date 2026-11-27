@@ -248,12 +248,29 @@ export const attachments = mysqlTable("attachments", {
 });
 
 // ==========================================
+// 12. page_versions (Version History Snapshots)
+// ==========================================
+export const pageVersions = mysqlTable("page_versions", {
+  id: char("id", { length: 36 }).primaryKey(),
+  pageId: char("page_id", { length: 36 })
+    .notNull()
+    .references(() => pages.id, { onDelete: "cascade" }),
+  createdBy: char("created_by", { length: 36 })
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  titleSnapshot: varchar("title_snapshot", { length: 255 }).notNull(),
+  crdtSnapshot: longblob("crdt_snapshot"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ==========================================
 // RELATIONS
 // ==========================================
 export const usersRelations = relations(users, ({ many }) => ({
   ownedWorkspaces: many(workspaces),
   memberships: many(workspaceMembers),
   pagesCreated: many(pages),
+  pageVersionsCreated: many(pageVersions),
   tasksAssigned: many(tasks),
   comments: many(comments),
   mentions: many(commentMentions),
@@ -321,6 +338,7 @@ export const pagesRelations = relations(pages, ({ one, many }) => ({
   }),
   comments: many(comments),
   attachments: many(attachments),
+  versions: many(pageVersions),
   outgoingRelations: many(pageRelations, {
     relationName: "sourcePageRelations",
   }),
@@ -409,6 +427,17 @@ export const attachmentsRelations = relations(attachments, ({ one }) => ({
   }),
   uploader: one(users, {
     fields: [attachments.uploadedBy],
+    references: [users.id],
+  }),
+}));
+
+export const pageVersionsRelations = relations(pageVersions, ({ one }) => ({
+  page: one(pages, {
+    fields: [pageVersions.pageId],
+    references: [pages.id],
+  }),
+  creator: one(users, {
+    fields: [pageVersions.createdBy],
     references: [users.id],
   }),
 }));

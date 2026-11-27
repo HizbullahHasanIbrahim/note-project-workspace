@@ -1,10 +1,11 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, eq, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   comments,
   pageRelations,
+  pageVersions,
   pages,
   tasks,
   users,
@@ -17,6 +18,7 @@ import { PageTitleHeader } from "@/components/editor/PageTitleHeader";
 import type {
   ActiveBacklinkItem,
   ActiveCommentItem,
+  ActiveVersionItem,
 } from "@/stores/useWorkspaceUIStore";
 
 interface PageViewProps {
@@ -210,6 +212,33 @@ async function AsyncPageView({ params }: PageViewProps) {
     createdAtIso: c.createdAt.toISOString(),
   }));
 
+  // 6b. Ambil daftar snapshot Version History halaman ini
+  const rawVersionRows = await db
+    .select({
+      id: pageVersions.id,
+      pageId: pageVersions.pageId,
+      titleSnapshot: pageVersions.titleSnapshot,
+      createdBy: pageVersions.createdBy,
+      authorName: users.fullName,
+      createdAt: pageVersions.createdAt,
+      crdtSnapshot: pageVersions.crdtSnapshot,
+    })
+    .from(pageVersions)
+    .innerJoin(users, eq(pageVersions.createdBy, users.id))
+    .where(eq(pageVersions.pageId, pageId))
+    .orderBy(desc(pageVersions.createdAt))
+    .limit(30);
+
+  const initialVersions: ActiveVersionItem[] = rawVersionRows.map((v) => ({
+    id: v.id,
+    pageId: v.pageId,
+    titleSnapshot: v.titleSnapshot,
+    createdBy: v.createdBy,
+    authorName: v.authorName,
+    createdAtIso: v.createdAt.toISOString(),
+    snapshotBytes: v.crdtSnapshot ? v.crdtSnapshot.length : 0,
+  }));
+
   // 7. Token otorisasi WebSocket jangka pendek untuk Hocuspocus
   const collabToken = createCollabToken({
     id: currentUser.id,
@@ -249,6 +278,7 @@ async function AsyncPageView({ params }: PageViewProps) {
         }))}
         initialBacklinks={initialBacklinks}
         initialComments={initialComments}
+        initialVersions={initialVersions}
       />
     </div>
   );

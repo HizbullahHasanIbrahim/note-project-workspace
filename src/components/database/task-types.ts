@@ -9,6 +9,16 @@ export interface LinkedPageSummary {
   isMaskedPrivate: boolean;
 }
 
+export interface TaskAttachmentItem {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  uploaderName: string;
+  createdAtIso: string;
+  url: string;
+}
+
 export interface DatabaseTaskItem {
   id: string;
   databasePageId: string;
@@ -22,6 +32,7 @@ export interface DatabaseTaskItem {
   dueDate: string | null; // Format ISO YYYY-MM-DD atau null
   positionOrder: number;
   linkedPages: LinkedPageSummary[];
+  attachments: TaskAttachmentItem[];
 }
 
 export interface LinkableDatabasePageOption {

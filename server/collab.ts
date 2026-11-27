@@ -8,12 +8,13 @@ import type {
   onStoreDocumentPayload,
 } from "@hocuspocus/server";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../src/db";
 import {
   comments,
   pageBlocks,
   pageRelations,
+  pageVersions,
   pages,
   users,
   workspaceMembers,
@@ -454,7 +455,12 @@ export async function createCollabServer(
 
       // Pastikan halaman masih ada dan ambil workspaceId terkini
       const [page] = await db
-        .select({ id: pages.id, workspaceId: pages.workspaceId })
+        .select({
+          id: pages.id,
+          workspaceId: pages.workspaceId,
+          title: pages.title,
+          createdBy: pages.createdBy,
+        })
         .from(pages)
         .where(eq(pages.id, pageId))
         .limit(1);
@@ -471,6 +477,30 @@ export async function createCollabServer(
 
       // 2. Jalankan proyeksi blok ke `page_blocks`, `page_relations`, dan komentar orphaned
       await syncProjectionsToDatabase(page.id, page.workspaceId, data.document);
+
+      // 3. Simpan snapshot otomatis ke `page_versions` (maksimal 1 snapshot per 10 menit/halaman)
+      const VERSION_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
+      const [latestVersion] = await db
+        .select({ createdAt: pageVersions.createdAt })
+        .from(pageVersions)
+        .where(eq(pageVersions.pageId, page.id))
+        .orderBy(desc(pageVersions.createdAt))
+        .limit(1);
+
+      const elapsedMs = latestVersion
+        ? Date.now() - latestVersion.createdAt.getTime()
+        : Infinity;
+
+      if (elapsedMs >= VERSION_SNAPSHOT_INTERVAL_MS && crdtBuffer.length > 0) {
+        const snapshotAuthorId = data.lastContext?.user?.id || page.createdBy;
+        await db.insert(pageVersions).values({
+          id: crypto.randomUUID(),
+          pageId: page.id,
+          createdBy: snapshotAuthorId,
+          titleSnapshot: page.title,
+          crdtSnapshot: crdtBuffer,
+        });
+      }
     },
   });
 }

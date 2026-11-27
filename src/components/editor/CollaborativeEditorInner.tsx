@@ -10,10 +10,10 @@ import {
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
-import { withCollaboration } from "@blocknote/core/yjs";
+import { withCollaboration, yDocToBlocks } from "@blocknote/core/yjs";
 import type { Block } from "@blocknote/core";
 import "@blocknote/mantine/style.css";
-import { FileText, Database } from "lucide-react";
+import { AlertCircle, Database, FileText, X } from "lucide-react";
 import {
   COLLAB_FRAGMENT_NAME,
   getCursorAccentToken,
@@ -23,6 +23,7 @@ import {
   useWorkspaceUIStore,
   type ActiveBacklinkItem,
   type ActiveCommentItem,
+  type ActiveVersionItem,
 } from "@/stores/useWorkspaceUIStore";
 import {
   createSprintSubDatabaseAction,
@@ -55,6 +56,7 @@ export interface CollaborativeEditorProps {
   linkablePages: LinkablePageSummary[];
   initialBacklinks: ActiveBacklinkItem[];
   initialComments?: ActiveCommentItem[];
+  initialVersions?: ActiveVersionItem[];
   syncShellContext?: boolean;
 }
 
@@ -144,6 +146,7 @@ function EditorSurface({
   const { activeComments, setActiveSelectedBlock } = useWorkspaceUIStore();
   const [isEmptyDoc, setIsEmptyDoc] = useState(true);
   const [templateDismissed, setTemplateDismissed] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isApplyingTemplate, startApplyingTemplate] = useTransition();
 
   const editor = useCreateBlockNote(
@@ -158,10 +161,40 @@ function EditorSurface({
         renderCursor: renderMaterialCursor,
         showCursorLabels: "activity",
       },
+      uploadFile: isReadOnly
+        ? undefined
+        : async (file: File) => {
+            setUploadError(null);
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("pageId", pageId);
+            const res = await fetch(
+              `/api/workspaces/${workspaceId}/attachments`,
+              {
+                method: "POST",
+                body: formData,
+              }
+            );
+            const payload = (await res.json().catch(() => ({}))) as {
+              error?: string;
+              attachment?: { url?: string };
+            };
+            if (!res.ok || !payload.attachment?.url) {
+              const message =
+                payload.error ||
+                "Gagal mengunggah lampiran. Pastikan format didukung dan ukuran <= 10 MB.";
+              setUploadError(message);
+              throw new Error(message);
+            }
+            router.refresh();
+            return payload.attachment.url;
+          },
       links: {
         // Sanitasi skema URL sesuai PRD §8.2 #4 + dukung tautan internal workspace
         isValidLink: (href: string) => {
-          if (href.startsWith("/workspace/")) return true;
+          if (href.startsWith("/workspace/") || href.startsWith("/api/attachments/")) {
+            return true;
+          }
           return /^(https?:\/\/|mailto:)/i.test(href);
         },
       },
@@ -171,8 +204,47 @@ function EditorSurface({
         },
       },
     }),
-    [provider, ydoc, pageId]
+    [provider, ydoc, pageId, isReadOnly, workspaceId]
   );
+
+  // Terima event pemulihan snapshot versi dari SupportingPane agar Yjs langsung sinkron
+  useEffect(() => {
+    const onRestoreVersion = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          pageId?: string;
+          crdtBase64?: string | null;
+        }>
+      ).detail;
+      if (!detail || detail.pageId !== pageId) return;
+      if (!detail.crdtBase64) return;
+
+      const tempDoc = new Y.Doc();
+      try {
+        const binary = Uint8Array.from(atob(detail.crdtBase64), (c) =>
+          c.charCodeAt(0)
+        );
+        Y.applyUpdate(tempDoc, binary);
+        const restoredBlocks = yDocToBlocks(
+          editor,
+          tempDoc,
+          COLLAB_FRAGMENT_NAME
+        );
+        if (Array.isArray(restoredBlocks) && restoredBlocks.length > 0) {
+          editor.replaceBlocks(editor.document, restoredBlocks);
+        }
+      } catch (err) {
+        console.error("Gagal memulihkan blok snapshot versi di editor:", err);
+      } finally {
+        tempDoc.destroy();
+      }
+    };
+
+    window.addEventListener("npw:restore-version", onRestoreVersion);
+    return () => {
+      window.removeEventListener("npw:restore-version", onRestoreVersion);
+    };
+  }, [editor, pageId]);
 
   // Periksa status kekosongan kanvas saat sinkronisasi selesai atau isi berubah
   useEffect(() => {
@@ -334,6 +406,26 @@ function EditorSurface({
 
   return (
     <div ref={containerRef} className="flex flex-col gap-4">
+      {uploadError && (
+        <div
+          role="alert"
+          className="rounded-2xl bg-error-container text-on-error-container px-4 py-3 flex items-center justify-between gap-3 text-sm"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>{uploadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUploadError(null)}
+            aria-label="Tutup galat unggahan"
+            className="min-w-[44px] min-h-[44px] -my-2 -mr-2 rounded-full inline-flex items-center justify-center hover:bg-on-error-container/10 cursor-pointer"
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
       {!isReadOnly && isEmptyDoc && !templateDismissed && (
         <TemplatePickerCard
           onSelectTemplate={handleSelectTemplate}
@@ -367,6 +459,7 @@ export default function CollaborativeEditorInner({
   linkablePages,
   initialBacklinks,
   initialComments = [],
+  initialVersions = [],
   syncShellContext = true,
 }: CollaborativeEditorProps) {
   const {
@@ -378,6 +471,7 @@ export default function CollaborativeEditorInner({
     setActiveBacklinks,
     setActiveComments,
     setActiveSelectedBlock,
+    setActiveVersions,
   } = useWorkspaceUIStore();
 
   const [sessionInstance, setSessionInstance] = useState<{
@@ -390,18 +484,20 @@ export default function CollaborativeEditorInner({
     [currentUser.id]
   );
 
-  // Sinkronkan judul halaman aktif, backlink, dan komentar ke Topbar/SupportingPane
+  // Sinkronkan judul halaman aktif, backlink, komentar, dan riwayat versi ke Topbar/SupportingPane
   useEffect(() => {
     if (!syncShellContext) return;
     setActivePageId(pageId);
     setActivePageTitle(initialTitle);
     setActiveBacklinks(initialBacklinks);
     setActiveComments(initialComments);
+    setActiveVersions(initialVersions);
     return () => {
       setActivePageId(null);
       setActivePageTitle(null);
       setActiveBacklinks([]);
       setActiveComments([]);
+      setActiveVersions([]);
       setActiveSelectedBlock(null);
     };
   }, [
@@ -410,10 +506,12 @@ export default function CollaborativeEditorInner({
     initialTitle,
     initialBacklinks,
     initialComments,
+    initialVersions,
     setActivePageId,
     setActivePageTitle,
     setActiveBacklinks,
     setActiveComments,
+    setActiveVersions,
     setActiveSelectedBlock,
   ]);
 

@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
+  Download,
   FileText,
   Link2,
   Lock,
+  Paperclip,
   Plus,
   Trash2,
   Unlink,
+  Upload,
   X,
 } from "lucide-react";
 import CollaborativeEditor from "@/components/editor/CollaborativeEditor";
+import { formatBytesCompact } from "@/lib/attachments";
 import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
@@ -26,6 +31,7 @@ import type {
   DatabaseMemberOption,
   DatabaseTaskItem,
   LinkableDatabasePageOption,
+  TaskAttachmentItem,
 } from "./task-types";
 
 interface TaskSidePeekModalProps {
@@ -50,6 +56,8 @@ interface TaskSidePeekModalProps {
   onDeleteTask: (taskId: string) => Promise<void>;
   onLinkNote: (taskId: string, targetPageId: string) => Promise<void>;
   onUnlinkNote: (taskId: string, targetPageId: string) => Promise<void>;
+  onAttachmentAdded?: (taskId: string, attachment: TaskAttachmentItem) => void;
+  onAttachmentRemoved?: (taskId: string, attachmentId: string) => void;
 }
 
 /**
@@ -70,17 +78,23 @@ export function TaskSidePeekModal({
   onDeleteTask,
   onLinkNote,
   onUnlinkNote,
+  onAttachmentAdded,
+  onAttachmentRemoved,
 }: TaskSidePeekModalProps) {
   const [titleDraft, setTitleDraft] = useState("");
   const [selectedLinkId, setSelectedLinkId] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isMutatingLink, setIsMutatingLink] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (task) {
       setTitleDraft(task.title);
       setConfirmingDelete(false);
       setSelectedLinkId("");
+      setUploadError(null);
     }
   }, [task]);
 
@@ -136,9 +150,66 @@ export function TaskSidePeekModal({
     }
   };
 
+  const handleUploadAttachment = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || isReadOnly || isUploadingFile) return;
+
+    setUploadError(null);
+    setIsUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("pageId", task.detailPageId);
+
+      const res = await fetch(`/api/workspaces/${workspaceId}/attachments`, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        attachment?: TaskAttachmentItem;
+      };
+
+      if (!res.ok || !payload.attachment) {
+        setUploadError(
+          payload.error ||
+            "Gagal mengunggah lampiran. Pastikan format aman & ukuran <= 10 MB."
+        );
+        return;
+      }
+
+      onAttachmentAdded?.(task.id, payload.attachment);
+    } catch {
+      setUploadError("Terjadi kesalahan jaringan saat mengunggah lampiran.");
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (isReadOnly) return;
+    setUploadError(null);
+    try {
+      const res = await fetch(`/api/attachments/${attachmentId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setUploadError(data.error || "Gagal menghapus lampiran.");
+        return;
+      }
+      onAttachmentRemoved?.(task.id, attachmentId);
+    } catch {
+      setUploadError("Terjadi kesalahan saat menghapus lampiran.");
+    }
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-scrim/40 flex justify-end items-stretch"
+      className="fixed inset-0 z-50 bg-scrim/40 flex justify-end items-end md:items-stretch"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -149,7 +220,7 @@ export function TaskSidePeekModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-side-peek-title"
-        className="w-full max-w-[640px] h-[calc(100dvh-24px)] m-3 rounded-[28px] bg-surface-container-high border border-outline-variant/60 shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-[640px] h-[100dvh] m-0 rounded-t-[28px] rounded-b-none md:h-[calc(100dvh-24px)] md:m-3 md:rounded-[28px] bg-surface-container-high border border-outline-variant/60 shadow-2xl flex flex-col overflow-hidden"
       >
         {/* Header modal */}
         <div className="px-5 py-3.5 border-b border-outline-variant/50 flex items-center justify-between gap-3 bg-surface-container-high">
@@ -439,6 +510,102 @@ export function TaskSidePeekModal({
                 >
                   <Plus className="w-4 h-4" aria-hidden="true" />
                   <span>Tautkan halaman</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Bagian Lampiran Tugas (Maks. 10 MB / Kuota 1 GB) */}
+          <div className="rounded-2xl bg-surface-container p-4 border border-outline-variant/50 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Paperclip className="w-4 h-4 text-primary" aria-hidden="true" />
+                <h3 className="text-sm font-semibold text-on-surface">
+                  Lampiran Tugas
+                </h3>
+              </div>
+              <span className="text-xs text-on-surface-variant">
+                {task.attachments.length} berkas (maks. 10 MB)
+              </span>
+            </div>
+
+            {uploadError && (
+              <div
+                role="alert"
+                className="rounded-xl bg-error-container text-on-error-container px-3 py-2 text-xs flex items-center gap-2"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+
+            {task.attachments.length === 0 ? (
+              <p className="text-xs text-on-surface-variant">
+                Belum ada gambar, PDF, atau dokumen DOCX yang dilampirkan pada
+                tugas ini.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {task.attachments.map((att) => (
+                  <li
+                    key={att.id}
+                    className="flex items-center justify-between gap-2 rounded-xl bg-surface-container-lowest border border-outline-variant/50 px-3 py-2"
+                  >
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 min-w-0 flex-1 text-sm font-medium text-on-surface hover:text-primary transition-colors"
+                    >
+                      <Download
+                        className="w-4 h-4 text-primary shrink-0"
+                        aria-hidden="true"
+                      />
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate">{att.fileName}</span>
+                        <span className="text-[11px] text-on-surface-variant font-mono">
+                          {formatBytesCompact(att.fileSizeBytes)} ·{" "}
+                          {att.uploaderName}
+                        </span>
+                      </div>
+                    </a>
+
+                    {!isReadOnly && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteAttachment(att.id)}
+                        aria-label={`Hapus lampiran ${att.fileName}`}
+                        className="min-w-[44px] min-h-[44px] -my-2 -mr-2 rounded-full inline-flex items-center justify-center text-on-surface-variant hover:bg-error-container hover:text-on-error-container transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
+                      >
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {!isReadOnly && (
+              <div className="pt-1">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.docx"
+                  onChange={handleUploadAttachment}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  disabled={isUploadingFile}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="min-h-[44px] px-4 rounded-full bg-secondary-container text-on-secondary-container text-sm font-medium inline-flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
+                >
+                  <Upload className="w-4 h-4" aria-hidden="true" />
+                  <span>
+                    {isUploadingFile
+                      ? "Mengunggah berkas..."
+                      : "Unggah gambar / PDF / DOCX"}
+                  </span>
                 </button>
               </div>
             )}

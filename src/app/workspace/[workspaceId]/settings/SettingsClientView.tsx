@@ -12,12 +12,14 @@ import {
   UserX,
   AlertCircle,
   Plus,
+  Trash2,
 } from "lucide-react";
 import {
   updateWorkspaceNameAction,
   updateMemberRoleAction,
   removeMemberAction,
   createInviteLinkAction,
+  revokeInviteAction,
 } from "./actions";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +40,12 @@ interface SettingsClientViewProps {
     role: "admin" | "member" | "viewer";
     joinedAt: Date;
   }>;
+  activeInvites?: Array<{
+    id: string;
+    defaultRole: "member" | "viewer";
+    expiresAt: Date;
+    createdAt: Date;
+  }>;
   currentUserRole: "admin" | "member" | "viewer";
   currentUserId: string;
 }
@@ -45,11 +53,13 @@ interface SettingsClientViewProps {
 export function SettingsClientView({
   workspace,
   members,
+  activeInvites = [],
   currentUserRole,
   currentUserId,
 }: SettingsClientViewProps) {
   const [activeTab, setActiveTab] = useState<"general" | "members" | "storage">("members");
   const [name, setName] = useState(workspace.name);
+  const [inviteRole, setInviteRole] = useState<"member" | "viewer">("member");
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
   const [generatedInviteUrl, setGeneratedInviteUrl] = useState<string | null>(null);
@@ -86,6 +96,17 @@ export function SettingsClientView({
     navigator.clipboard.writeText(generatedInviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRevokeInvite = (inviteId: string) => {
+    if (!confirm("Apakah Anda yakin ingin mencabut tautan undangan ini?")) return;
+    setActionError(null);
+    startTransition(async () => {
+      const res = await revokeInviteAction(workspace.id, inviteId);
+      if (res?.error) {
+        setActionError(res.error);
+      }
+    });
   };
 
   const handleRoleChange = (targetUserId: string, newRole: "admin" | "member" | "viewer") => {
@@ -189,14 +210,28 @@ export function SettingsClientView({
             </div>
 
             {isAdmin ? (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  aria-label="Pilih peran untuk tautan undangan baru"
+                  value={inviteRole}
+                  disabled={isPending}
+                  onChange={(e) => setInviteRole(e.target.value as "member" | "viewer")}
+                  className={cn(
+                    "min-h-[44px] px-3.5 rounded-xl bg-surface-container text-xs text-on-surface",
+                    "border border-outline focus:border-primary outline-none"
+                  )}
+                >
+                  <option value="member">Peran: Member</option>
+                  <option value="viewer">Peran: Viewer (Read-Only)</option>
+                </select>
+
                 <button
                   type="button"
                   disabled={isPending || members.length >= workspace.maxMembers}
-                  onClick={() => handleCreateInvite("member")}
+                  onClick={() => handleCreateInvite(inviteRole)}
                   className={cn(
-                    "min-h-[40px] px-4 rounded-full bg-primary text-on-primary text-label-medium font-semibold",
-                    "flex items-center gap-1.5 hover:brightness-95 transition-all shadow-xs",
+                    "min-h-[44px] px-4 rounded-full bg-primary text-on-primary text-label-medium font-semibold",
+                    "flex items-center gap-1.5 hover:brightness-95 transition-all shadow-xs cursor-pointer",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
@@ -226,7 +261,7 @@ export function SettingsClientView({
                 type="button"
                 onClick={handleCopyInvite}
                 className={cn(
-                  "min-h-[36px] px-3.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all",
+                  "min-h-[44px] px-4 rounded-full text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer",
                   copied
                     ? "bg-primary text-on-primary"
                     : "bg-secondary-container text-on-secondary-container hover:brightness-95"
@@ -244,6 +279,56 @@ export function SettingsClientView({
                   </>
                 )}
               </button>
+            </div>
+          )}
+
+          {/* Daftar Tautan Undangan Aktif */}
+          {activeInvites.length > 0 && (
+            <div className="rounded-2xl border border-outline-variant/40 bg-card-surface overflow-hidden">
+              <div className="p-4 border-b border-outline-variant/40 font-semibold text-xs text-on-surface-variant bg-surface-container">
+                Tautan Undangan Aktif ({activeInvites.length})
+              </div>
+              <div className="divide-y divide-outline-variant/30">
+                {activeInvites.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container text-xs font-semibold capitalize">
+                        {inv.defaultRole}
+                      </span>
+                      <span className="text-xs text-on-surface-variant">
+                        Berlaku hingga{" "}
+                        {new Intl.DateTimeFormat("id-ID", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }).format(new Date(inv.expiresAt))}
+                      </span>
+                    </div>
+
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => handleRevokeInvite(inv.id)}
+                        aria-label="Cabut tautan undangan ini"
+                        className={cn(
+                          "min-h-[44px] px-3.5 rounded-full text-xs font-medium text-error",
+                          "hover:bg-error-container transition-colors flex items-center gap-1.5 cursor-pointer",
+                          "disabled:opacity-50"
+                        )}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Cabut Tautan</span>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -293,7 +378,7 @@ export function SettingsClientView({
                           )
                         }
                         className={cn(
-                          "h-9 px-3 rounded-xl bg-surface-container text-xs text-on-surface",
+                          "min-h-[44px] px-3 rounded-xl bg-surface-container text-xs text-on-surface",
                           "border border-outline focus:border-primary outline-none"
                         )}
                       >
@@ -313,7 +398,7 @@ export function SettingsClientView({
                         type="button"
                         aria-label={`Keluarkan ${member.fullName}`}
                         onClick={() => handleRemoveMember(member.userId)}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-error hover:bg-error-container transition-colors"
+                        className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-error hover:bg-error-container transition-colors cursor-pointer"
                       >
                         <UserX className="w-4 h-4" />
                       </button>
@@ -389,7 +474,10 @@ export function SettingsClientView({
             </div>
             <div className="w-full h-3 rounded-full bg-surface-container-highest overflow-hidden">
               <div
-                className="h-full bg-primary rounded-full transition-all duration-300"
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  storagePercentage >= 100 ? "bg-error" : "bg-primary"
+                )}
                 style={{ width: `${Math.max(4, storagePercentage)}%` }}
               />
             </div>

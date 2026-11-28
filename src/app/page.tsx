@@ -1,171 +1,114 @@
-import React from "react";
 import Link from "next/link";
-import {
-  ArrowRight,
-  Database,
-  History,
-  Lock,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Upload,
-} from "lucide-react";
-import { LandingShowcase } from "@/components/landing/LandingShowcase";
-
-const PRODUCT_PILLARS = [
-  {
-    title: "Real-Time CRDT Block Editor",
-    desc: "Susun spesifikasi, notulensi rapat, checklist, dan blok kode bersama rekan tim dengan live cursor tanpa konflik.",
-    Icon: Sparkles,
-  },
-  {
-    title: "Task Database Multi-View",
-    desc: "Kelola tugas sprint lewat tampilan Kanban, Table, dan Calendar serta tautkan langsung ke dokumen Meeting Notes.",
-    Icon: Database,
-  },
-  {
-    title: "Isolasi Private Space & RBAC",
-    desc: "Pisahkan draf pribadi dari Shared Teamspace dengan 3 peran Admin, Member, dan Viewer serta perlindungan anti-IDOR.",
-    Icon: Lock,
-  },
-  {
-    title: "Quick Command (Cmd+K)",
-    desc: "Temukan judul halaman, isi blok dokumen, hingga kartu tugas lintas workspace dalam hitungan milidetik.",
-    Icon: Search,
-  },
-  {
-    title: "Lampiran Aman 10 MB & Kuota 1 GB",
-    desc: "Validasi magic bytes ketat (anti-XSS SVG/HTML) dengan kunci transaksi kuota penyimpanan per workspace.",
-    Icon: Upload,
-  },
-  {
-    title: "Version History & Komentar Blok",
-    desc: "Simpan dan pulihkan snapshot riwayat dokumen kapan saja, lengkap dengan utas komentar dan notifikasi @mention.",
-    Icon: History,
-  },
-];
+import { Sparkles, Users, Cpu, Shield, Gift, ArrowDown } from "lucide-react";
+import { LandingNavbar } from "@/components/landing/LandingNavbar";
+import { LandingHeroSandbox } from "@/components/landing/LandingHeroSandbox";
+import { LandingWorkflow } from "@/components/landing/LandingWorkflow";
+import { LandingFeatureExplorer } from "@/components/landing/LandingFeatureExplorer";
+import { LandingComparison } from "@/components/landing/LandingComparison";
+import { LandingOpenSpecs } from "@/components/landing/LandingOpenSpecs";
+import { LandingFooter } from "@/components/landing/LandingFooter";
+import { cn } from "@/lib/utils";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-surface text-on-surface">
-      {/* Navbar Utama */}
-      <header className="sticky top-0 z-20 h-16 px-4 sm:px-8 flex items-center justify-between border-b border-outline-variant/30 bg-surface/95 backdrop-blur">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-on-primary font-bold text-sm shrink-0">
-            NW
-          </div>
-          <span className="font-[family-name:var(--font-jakarta)] text-base sm:text-lg font-bold text-on-surface tracking-tight truncate">
-            Note &amp; Project Workspace
-          </span>
-        </div>
+    <div className="min-h-screen flex flex-col bg-surface text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+      {/* Navbar M3 */}
+      <LandingNavbar />
 
-        <div className="flex items-center gap-2.5 shrink-0">
-          <Link
-            href="/login"
-            className="min-h-[44px] px-4 rounded-full border border-outline text-primary text-sm font-semibold inline-flex items-center justify-center hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
-          >
-            Masuk
-          </Link>
-          <Link
-            href="/register"
-            className="min-h-[44px] px-5 rounded-full bg-primary text-on-primary text-sm font-semibold inline-flex items-center gap-1.5 hover:brightness-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
-          >
-            <span>Mulai Gratis</span>
-            <ArrowRight className="w-4 h-4" aria-hidden="true" />
-          </Link>
-        </div>
-      </header>
-
-      {/* Hero & Showcase Interaktif */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-12 sm:py-16 flex flex-col items-center gap-14">
-        <section className="max-w-4xl flex flex-col items-center text-center gap-6">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary-container text-on-secondary-container text-xs font-semibold">
-            <ShieldCheck className="w-4 h-4 text-primary" aria-hidden="true" />
-            <span>Gratis untuk Tim Kecil 2–20 Anggota · Material You M3</span>
-          </div>
-
-          <h1 className="font-[family-name:var(--font-jakarta)] text-3xl sm:text-5xl font-extrabold text-on-surface tracking-tight leading-tight">
-            Satukan Dokumen Kolaboratif dan Eksekusi Sprint dalam Satu Ruang Kerja
-          </h1>
-
-          <p className="text-on-surface-variant max-w-2xl leading-relaxed text-base sm:text-lg">
-            Hentikan informasi yang tercecer antara catatan rapat dan papan
-            tugas. Tulis spesifikasi bersama secara real-time, tautkan ke kartu
-            Kanban, dan temukan konteks proyek dalam sekejap lewat Cmd+K.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 w-full sm:w-auto">
-            <Link
-              href="/register"
-              className="w-full sm:w-auto min-h-[48px] px-8 rounded-full bg-primary text-on-primary text-sm font-semibold inline-flex items-center justify-center gap-2 hover:brightness-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
-            >
-              <span>Buat Workspace Gratis</span>
-              <ArrowRight className="w-4 h-4" aria-hidden="true" />
-            </Link>
-
-            <Link
-              href="/login"
-              className="w-full sm:w-auto min-h-[48px] px-7 rounded-full bg-secondary-container text-on-secondary-container text-sm font-semibold inline-flex items-center justify-center hover:brightness-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline"
-            >
-              <span>Masuk ke Akun Tim</span>
-            </Link>
-          </div>
-        </section>
-
-        {/* Pratinjau Interaktif 3-Pane + Kanban */}
-        <LandingShowcase />
-
-        {/* Ringkasan Kapabilitas Tim Kecil */}
+      <main className="flex-1 flex flex-col">
+        {/* Hero Section: Editorial & Above-the-Fold Calibrated for 1440x900 */}
         <section
-          aria-label="Ringkasan Fitur Utama Tim Kecil"
-          className="w-full flex flex-col gap-6"
+          aria-labelledby="hero-heading"
+          className="w-full pt-8 sm:pt-12 lg:pt-14 pb-12 sm:pb-16 overflow-hidden"
         >
-          <div className="flex flex-col gap-1 text-center">
-            <h2 className="font-[family-name:var(--font-jakarta)] text-2xl sm:text-3xl font-bold text-on-surface">
-              Dirancang Khusus untuk Tim 2–20 Orang
-            </h2>
-            <p className="text-sm text-on-surface-variant">
-              Ringan, aman terhadap kebocoran akses, dan responsif di desktop,
-              tablet, maupun browser ponsel.
-            </p>
-          </div>
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center text-center">
+            {/* Header Badge: Kontekstual & Tenang */}
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary-container text-on-secondary-container text-label-medium font-semibold mb-5 shadow-xs">
+              <Sparkles className="w-4 h-4 text-primary" aria-hidden="true" />
+              <span>Ruang kerja kolaboratif dokumen dan manajemen tugas</span>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
-            {PRODUCT_PILLARS.map(({ title, desc, Icon }) => (
-              <div
-                key={title}
-                className="p-5 rounded-2xl bg-surface-container border border-outline-variant/40 flex flex-col gap-2.5"
+            {/* Judul Utama Hero dengan Text-Balance */}
+            <h1
+              id="hero-heading"
+              className="text-display-small sm:text-5xl lg:text-[3.5rem] lg:leading-[4.125rem] font-bold text-on-surface tracking-tight max-w-4xl mx-auto text-balance"
+            >
+              Satu ruang kerja terpadu untuk dokumen, tugas, dan koordinasi tim
+            </h1>
+
+            {/* Paragraf Penjelas (Line length <= 65ch dengan text-pretty) */}
+            <p className="mt-5 text-body-large sm:text-title-large text-on-surface-variant max-w-[65ch] mx-auto leading-relaxed text-pretty">
+              Hilangkan friksi antara notulensi rapat dan papan tugas. Tulis draf privat dengan proteksi anti-IDOR,
+              kolaborasi real-time dengan CRDT Yjs, dan pantau progres dalam satu sistem desain Material You yang tenang.
+            </p>
+
+            {/* Tombol Aksi Utama M3 Pill (Min Touch Target 48px) */}
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+              <Link
+                href="/register"
+                className={cn(
+                  "min-h-[48px] px-8 rounded-full bg-primary text-on-primary font-bold text-label-large",
+                  "hover:bg-primary/90 transition-all motion-reduce:transition-none flex items-center justify-center shadow-xs cursor-pointer",
+                  "focus-visible:ring-2 focus-visible:ring-outline outline-none active:scale-98"
+                )}
               >
-                <div className="w-10 h-10 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center">
-                  <Icon className="w-5 h-5" aria-hidden="true" />
-                </div>
-                <h3 className="font-semibold text-on-surface text-sm">
-                  {title}
-                </h3>
-                <p className="text-xs text-on-surface-variant leading-relaxed">
-                  {desc}
-                </p>
+                Mulai Gratis untuk Tim
+              </Link>
+              <a
+                href="#demo-sandbox"
+                className={cn(
+                  "min-h-[48px] px-8 rounded-full border border-outline text-on-surface font-semibold text-label-large",
+                  "hover:bg-surface-container transition-all motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer",
+                  "focus-visible:ring-2 focus-visible:ring-outline outline-none active:scale-98"
+                )}
+              >
+                <span>Jelajahi Demo Langsung</span>
+                <ArrowDown className="w-4 h-4 text-on-surface-variant" aria-hidden="true" />
+              </a>
+            </div>
+
+            {/* Live Workspace Sandbox (Terlihat Above-the-Fold pada Desktop 1440x900) */}
+            <div id="demo-sandbox" className="w-full mt-10 sm:mt-12 scroll-mt-24">
+              {/* Trust Bar Terintegrasi */}
+              <div className="mb-3.5 flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-label-small font-medium text-on-surface-variant">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-container border border-outline-variant/40">
+                  <Users className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+                  <span>Kapasitas 2–20 anggota</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-container border border-outline-variant/40">
+                  <Cpu className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+                  <span>CRDT WebSocket &lt; 200ms</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-container border border-outline-variant/40">
+                  <Shield className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+                  <span>Isolasi Anti-IDOR</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-container border border-outline-variant/40">
+                  <Gift className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+                  <span>100% Gratis Tanpa Kartu Kredit</span>
+                </span>
               </div>
-            ))}
+
+              <LandingHeroSandbox />
+            </div>
           </div>
         </section>
+
+        {/* 4-Langkah Alur Kerja Terpadu */}
+        <LandingWorkflow />
+
+        {/* 5 Pilar Utama MVP: List-Detail Explorer */}
+        <LandingFeatureExplorer />
+
+        {/* Perbandingan: Terpisah vs Terpadu */}
+        <LandingComparison />
+
+        {/* Spesifikasi Teknis & Batasan Arsitektur Transparan */}
+        <LandingOpenSpecs />
       </main>
 
-      {/* Footer */}
-      <footer className="py-5 px-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-outline-variant/30 text-xs text-on-surface-variant max-w-6xl w-full mx-auto">
-        <span>© 2026 Note &amp; Project Workspace · Material Design 3</span>
-        <div className="flex items-center gap-4">
-          <Link href="/login" className="hover:text-primary transition-colors">
-            Masuk
-          </Link>
-          <Link
-            href="/register"
-            className="hover:text-primary transition-colors"
-          >
-            Daftar Workspace
-          </Link>
-        </div>
-      </footer>
+      {/* Banner CTA Penutup & Footer M3 */}
+      <LandingFooter />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { pages } from "@/db/schema";
+import { pages, workspaceMembers } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 interface WorkspaceIndexPageProps {
@@ -17,6 +17,22 @@ async function AsyncWorkspaceIndexPage({
 
   if (!currentUser) {
     redirect(`/login?redirect=/workspace/${workspaceId}`);
+  }
+
+  // Verifikasi keanggotaan pengguna aktif di ruang kerja ini (Anti-IDOR)
+  const [membership] = await db
+    .select({ id: workspaceMembers.id })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, currentUser.id)
+      )
+    )
+    .limit(1);
+
+  if (!membership) {
+    notFound();
   }
 
   // Cari halaman pertama di Shared Teamspace

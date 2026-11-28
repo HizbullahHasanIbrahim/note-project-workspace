@@ -1,10 +1,19 @@
 "use server";
 
 import crypto from "crypto";
+import fs from "fs/promises";
 import { revalidatePath } from "next/cache";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { pageRelations, pages, tasks, workspaceMembers } from "@/db/schema";
+import {
+  attachments,
+  pageRelations,
+  pages,
+  tasks,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema";
+import { resolveAttachmentDiskPath } from "@/lib/attachments";
 import { getCurrentUser } from "@/lib/auth";
 import { canEditTasks } from "@/lib/permissions";
 import {
@@ -371,9 +380,57 @@ export async function deleteTaskAction(input: {
       return { error: "Kartu tugas tidak ditemukan." };
     }
 
-    // Menghapus halaman `detail_page_id` otomatis melakukan cascade delete pada baris `tasks`
-    await db.delete(pages).where(eq(pages.id, existingTask.detailPageId));
+    let filesToDelete: string[] = [];
 
+    await db.transaction(async (tx) => {
+      const [lockRows] = (await tx.execute(
+        sql`SELECT id, storage_used_bytes FROM workspaces WHERE id = ${input.workspaceId} FOR UPDATE`
+      )) as unknown as [
+        Array<{ id: string; storage_used_bytes: number | string }>
+      ];
+
+      const taskAttachments = await tx
+        .select({
+          id: attachments.id,
+          storageKey: attachments.storageKey,
+          fileSizeBytes: attachments.fileSizeBytes,
+        })
+        .from(attachments)
+        .where(
+          and(
+            eq(attachments.workspaceId, input.workspaceId),
+            eq(attachments.pageId, existingTask.detailPageId)
+          )
+        );
+
+      const reclaimedBytes = taskAttachments.reduce(
+        (sum, row) => sum + Number(row.fileSizeBytes || 0),
+        0
+      );
+      filesToDelete = taskAttachments.map((row) => row.storageKey);
+
+      if (reclaimedBytes > 0 && lockRows[0]) {
+        const currentUsed = Number(lockRows[0].storage_used_bytes || 0);
+        const nextUsed = Math.max(0, currentUsed - reclaimedBytes);
+        await tx
+          .update(workspaces)
+          .set({ storageUsedBytes: nextUsed })
+          .where(eq(workspaces.id, input.workspaceId));
+      }
+
+      // Menghapus halaman `detail_page_id` otomatis melakukan cascade delete pada baris `tasks` & `attachments`
+      await tx.delete(pages).where(eq(pages.id, existingTask.detailPageId));
+    });
+
+    for (const storageKey of filesToDelete) {
+      try {
+        await fs.unlink(resolveAttachmentDiskPath(storageKey));
+      } catch {
+        // Abaikan apabila berkas fisik sudah terhapus dari disk
+      }
+    }
+
+    revalidatePath(`/workspace/${input.workspaceId}`, "layout");
     revalidatePath(`/workspace/${input.workspaceId}/database/${input.databasePageId}`);
     return { success: true };
   } catch (err) {

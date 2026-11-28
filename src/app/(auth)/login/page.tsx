@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useActionState, useTransition } from "react";
+import React, { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Lock, Mail, AlertCircle, Sparkles } from "lucide-react";
+import { ArrowRight, Lock, Mail, AlertCircle } from "lucide-react";
 import { loginAction, googleAuthAction } from "../actions";
 import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
   const [isGooglePending, startGoogleTransition] = useTransition();
+
+  const displayedError = googleError || state?.error;
 
   return (
     <div className="min-h-screen flex flex-col justify-center items-center bg-surface px-4 py-12">
@@ -29,33 +32,38 @@ export default function LoginPage() {
         {/* Kartu Formulir Material You */}
         <div className="p-8 rounded-[28px] bg-card-surface border border-outline-variant/40 shadow-sm flex flex-col gap-5">
           {/* Pesan Error Global */}
-          {state?.error && (
+          {displayedError && (
             <div
               role="alert"
               className="p-3.5 rounded-xl bg-error-container text-on-error-container text-xs flex items-center gap-2"
             >
-              <AlertCircle className="w-4 h-4 shrink-0 text-error" />
-              <span>{state.error}</span>
+              <AlertCircle className="w-4 h-4 shrink-0 text-error" aria-hidden="true" />
+              <span>{displayedError}</span>
             </div>
           )}
 
-          {/* Tombol Google OAuth */}
-          <button
-            type="button"
-            disabled={isGooglePending}
-            onClick={() => {
-              startGoogleTransition(() => {
-                googleAuthAction();
-              });
-            }}
-            className={cn(
-              "w-full min-h-[48px] px-5 rounded-full border border-outline",
-              "bg-transparent hover:bg-surface-container text-on-surface text-label-large font-medium",
-              "flex items-center justify-center gap-3 transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-outline outline-none"
-            )}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
+          {/* Tombol Google OAuth (terlindungi tanpa bypass) */}
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              disabled={isGooglePending}
+              onClick={() => {
+                setGoogleError(null);
+                startGoogleTransition(async () => {
+                  const res = await googleAuthAction();
+                  if (res?.error) {
+                    setGoogleError(res.error);
+                  }
+                });
+              }}
+              className={cn(
+                "w-full min-h-[48px] px-5 rounded-full border border-outline",
+                "bg-transparent hover:bg-surface-container text-on-surface text-label-large font-medium",
+                "flex items-center justify-center gap-3 transition-colors cursor-pointer",
+                "focus-visible:ring-2 focus-visible:ring-outline outline-none"
+              )}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
               <path
                 fill="currentColor"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -73,13 +81,17 @@ export default function LoginPage() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
               />
             </svg>
-            <span>{isGooglePending ? "Menghubungkan..." : "Masuk dengan Google"}</span>
-          </button>
+              <span>{isGooglePending ? "Memeriksa konfigurasi..." : "Masuk dengan Google"}</span>
+            </button>
+            <p className="text-[11px] text-center text-on-surface-variant">
+              Jika Google OAuth belum aktif, gunakan Email &amp; Kata Sandi di bawah.
+            </p>
+          </div>
 
           {/* Garis Pemisah */}
           <div className="flex items-center gap-3">
             <div className="flex-1 h-[1px] bg-outline-variant/40" />
-            <span className="text-[11px] text-on-surface-variant font-medium uppercase tracking-wider">
+            <span className="text-xs text-on-surface-variant font-medium">
               Atau gunakan email
             </span>
             <div className="flex-1 h-[1px] bg-outline-variant/40" />

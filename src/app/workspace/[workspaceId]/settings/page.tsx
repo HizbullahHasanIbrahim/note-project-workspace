@@ -1,8 +1,8 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { db } from "@/db";
-import { workspaces, workspaceMembers, users } from "@/db/schema";
+import { workspaces, workspaceMembers, workspaceInvites, users } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { SettingsClientView } from "./SettingsClientView";
 
@@ -60,6 +60,25 @@ async function AsyncSettingsPage({ params }: SettingsPageProps) {
     .innerJoin(users, eq(workspaceMembers.userId, users.id))
     .where(eq(workspaceMembers.workspaceId, workspaceId));
 
+  // Ambil seluruh tautan undangan aktif
+  const now = new Date();
+  const activeInvites = await db
+    .select({
+      id: workspaceInvites.id,
+      defaultRole: workspaceInvites.defaultRole,
+      expiresAt: workspaceInvites.expiresAt,
+      createdAt: workspaceInvites.createdAt,
+    })
+    .from(workspaceInvites)
+    .where(
+      and(
+        eq(workspaceInvites.workspaceId, workspaceId),
+        eq(workspaceInvites.isRevoked, false),
+        gt(workspaceInvites.expiresAt, now)
+      )
+    )
+    .orderBy(desc(workspaceInvites.createdAt));
+
   return (
     <div className="w-full max-w-4xl mx-auto py-10 px-8 flex flex-col gap-8">
       {/* Header Pengaturan */}
@@ -76,6 +95,7 @@ async function AsyncSettingsPage({ params }: SettingsPageProps) {
       <SettingsClientView
         workspace={workspace}
         members={membersList}
+        activeInvites={activeInvites}
         currentUserRole={currentMembership.role}
         currentUserId={currentUser.id}
       />

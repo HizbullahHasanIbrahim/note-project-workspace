@@ -97,7 +97,7 @@ async function AsyncInvitePage({ params }: InvitePageProps) {
               <span className="font-semibold text-base text-on-surface">
                 {invite.workspaceName}
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container text-xs font-semibold uppercase">
+              <span className="px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container text-xs font-semibold capitalize">
                 {invite.defaultRole}
               </span>
             </div>

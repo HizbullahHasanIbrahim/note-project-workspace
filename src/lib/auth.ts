@@ -5,8 +5,41 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 
 const SESSION_COOKIE_NAME = "npw_session";
-const SESSION_SECRET =
-  process.env.SESSION_SECRET || "note_project_workspace_super_secret_key_32chars!";
+const DEV_FALLBACK_SESSION_SECRET =
+  "dev_only_npw_ephemeral_secret_do_not_use_in_prod_32c";
+
+/**
+ * Mengambil SESSION_SECRET dengan validasi fail-fast saat runtime di produksi.
+ * Mencegah penggunaan fallback secret statis ketika NODE_ENV === "production".
+ */
+export function getSessionSecret(): string {
+  const envSecret = process.env.SESSION_SECRET?.trim();
+
+  if (process.env.NODE_ENV === "production") {
+    if (!envSecret || envSecret.length < 32) {
+      throw new Error(
+        "[Auth] FATAL: SESSION_SECRET wajib diset pada environment produksi dengan panjang minimal 32 karakter."
+      );
+    }
+    return envSecret;
+  }
+
+  if (envSecret && envSecret.length >= 32) {
+    return envSecret;
+  }
+
+  return DEV_FALLBACK_SESSION_SECRET;
+}
+
+/**
+ * Menghasilkan secret internal turunan untuk komunikasi server-to-server Next.js -> Hocuspocus.
+ */
+export function getCollabInternalSecret(): string {
+  return crypto
+    .createHmac("sha256", getSessionSecret())
+    .update("npw:internal-collab-control")
+    .digest("hex");
+}
 
 export interface SessionPayload {
   userId: string;
@@ -55,10 +88,11 @@ export async function verifyPassword(
  * Membuat token sesi bertanda tangan HMAC-SHA256
  */
 export function signSessionToken(payload: SessionPayload): string {
+  const secret = getSessionSecret();
   const jsonStr = JSON.stringify(payload);
   const dataB64 = Buffer.from(jsonStr).toString("base64url");
   const signature = crypto
-    .createHmac("sha256", SESSION_SECRET)
+    .createHmac("sha256", secret)
     .update(dataB64)
     .digest("base64url");
   return `${dataB64}.${signature}`;
@@ -69,11 +103,12 @@ export function signSessionToken(payload: SessionPayload): string {
  */
 export function verifySessionToken(token: string): SessionPayload | null {
   try {
+    const secret = getSessionSecret();
     const [dataB64, signature] = token.split(".");
     if (!dataB64 || !signature) return null;
 
     const expectedSignature = crypto
-      .createHmac("sha256", SESSION_SECRET)
+      .createHmac("sha256", secret)
       .update(dataB64)
       .digest("base64url");
 

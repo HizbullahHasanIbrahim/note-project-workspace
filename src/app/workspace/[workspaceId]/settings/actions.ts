@@ -133,11 +133,38 @@ export async function createInviteLinkAction(
     id: crypto.randomUUID(),
     workspaceId,
     tokenHash,
-    defaultRole,
+    defaultRole: defaultRole === "viewer" ? "viewer" : "member",
     expiresAt,
     isRevoked: false,
   });
 
   revalidatePath(`/workspace/${workspaceId}/settings`);
   return { token: rawToken };
+}
+
+/**
+ * Server Action: Cabut Tautan Undangan Aktif
+ */
+export async function revokeInviteAction(
+  workspaceId: string,
+  inviteId: string
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    await requireWorkspaceAdmin(workspaceId);
+
+    await db
+      .update(workspaceInvites)
+      .set({ isRevoked: true })
+      .where(
+        and(
+          eq(workspaceInvites.id, inviteId),
+          eq(workspaceInvites.workspaceId, workspaceId)
+        )
+      );
+
+    revalidatePath(`/workspace/${workspaceId}/settings`);
+    return { success: true };
+  } catch (err: any) {
+    return { error: err?.message || "Gagal mencabut tautan undangan." };
+  }
 }

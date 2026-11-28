@@ -121,56 +121,21 @@ export async function loginAction(
 }
 
 /**
- * Server Action untuk Google OAuth (Alur instan satu klik untuk lingkungan MVP)
+ * Server Action untuk Google OAuth.
+ * Menutup celah impersonasi dengan tidak pernah menerima email/nama mentah dari klien.
  */
-export async function googleAuthAction(emailParam?: string, nameParam?: string) {
-  const email = emailParam || "user.google@example.com";
-  const fullName = nameParam || "Google User";
-
-  let [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-
-  if (!user) {
-    const userId = crypto.randomUUID();
-    await db.insert(users).values({
-      id: userId,
-      email,
-      fullName,
-      authProvider: "google",
-      avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fullName)}`,
-    });
-
-    user = {
-      id: userId,
-      email,
-      fullName,
-      passwordHash: null,
-      avatarUrl: null,
-      authProvider: "google",
-      createdAt: new Date(),
+export async function googleAuthAction(): Promise<AuthActionResult> {
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    return {
+      error:
+        "Login Google OAuth belum dikonfigurasi pada server ini. Silakan masuk menggunakan Email & Kata Sandi.",
     };
   }
 
-  await setSessionCookie({
-    userId: user.id,
-    email: user.email,
-    fullName: user.fullName,
-  });
-
-  const [membership] = await db
-    .select()
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, user.id))
-    .limit(1);
-
-  if (membership) {
-    redirect(`/workspace/${membership.workspaceId}`);
-  } else {
-    redirect("/onboarding");
-  }
+  return {
+    error:
+      "Alur verifikasi callback OAuth Google belum aktif pada server ini. Silakan masuk menggunakan Email & Kata Sandi.",
+  };
 }
 
 /**

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import CollaborativeEditor from "@/components/editor/CollaborativeEditor";
 import { formatBytesCompact } from "@/lib/attachments";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import {
   PRIORITY_CONFIG,
   STATUS_CONFIG,
@@ -88,6 +89,9 @@ export function TaskSidePeekModal({
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useFocusTrap<HTMLElement>(Boolean(task), {
+    onEscape: onClose,
+  });
 
   useEffect(() => {
     if (task) {
@@ -217,6 +221,7 @@ export function TaskSidePeekModal({
       }}
     >
       <section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-side-peek-title"

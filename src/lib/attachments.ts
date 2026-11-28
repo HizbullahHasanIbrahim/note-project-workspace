@@ -131,15 +131,26 @@ export function detectMimeFromMagicBytes(
     return "image/gif";
   }
 
-  // PDF: %PDF-
+  // PDF: %PDF- dan validasi %%EOF di 1024 byte terakhir berkas
   if (startsWithBytes(buffer, [0x25, 0x50, 0x44, 0x46, 0x2d])) {
-    return "application/pdf";
+    const tailText = buffer
+      .subarray(Math.max(0, buffer.length - 1024))
+      .toString("latin1");
+    if (tailText.includes("%%EOF")) {
+      return "application/pdf";
+    }
+    return null;
   }
 
-  // DOCX: Header PK ZIP (50 4B 03 04) + ekstensi wajib .docx
+  // DOCX: Header PK ZIP (50 4B 03 04) + ekstensi .docx + verifikasi struktur internal OpenXML ([Content_Types].xml & word/)
   const ext = path.extname(sanitizedFileName).toLowerCase();
   if (startsWithBytes(buffer, [0x50, 0x4b, 0x03, 0x04]) && ext === ".docx") {
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const hasContentTypes = buffer.includes(Buffer.from("[Content_Types].xml"));
+    const hasWordDir = buffer.includes(Buffer.from("word/"));
+    if (hasContentTypes && hasWordDir) {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    return null;
   }
 
   return null;

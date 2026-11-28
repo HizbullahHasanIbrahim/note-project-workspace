@@ -532,6 +532,8 @@ export default function CollaborativeEditorInner({
         process.env.NEXT_PUBLIC_COLLAB_WS_URL || "ws://localhost:1234";
 
       ydoc = new Y.Doc();
+      let currentCollabStatus: "saved" | "syncing" | "offline" = "syncing";
+
       provider = new HocuspocusProvider({
         url: wsUrl,
         name: pageId,
@@ -539,18 +541,26 @@ export default function CollaborativeEditorInner({
         token: collabToken,
         onStatus: ({ status }) => {
           if (status === WebSocketStatus.Disconnected) {
+            currentCollabStatus = "offline";
             setCollabStatus("offline");
           } else if (status === WebSocketStatus.Connecting) {
-            setCollabStatus("syncing");
+            // Jaga indikator offline tetap stabil saat proses reconnecting agar UI tidak flicker
+            if (currentCollabStatus !== "offline") {
+              currentCollabStatus = "syncing";
+              setCollabStatus("syncing");
+            }
           }
         },
         onSynced: ({ state }) => {
-          setCollabStatus(state ? "saved" : "syncing");
+          currentCollabStatus = state ? "saved" : "syncing";
+          setCollabStatus(currentCollabStatus);
         },
         onUnsyncedChanges: ({ number }) => {
           if (number > 0) {
+            currentCollabStatus = "syncing";
             setCollabStatus("syncing");
           } else if (provider?.isSynced) {
+            currentCollabStatus = "saved";
             setCollabStatus("saved");
           }
         },

@@ -28,6 +28,7 @@ import {
 } from "@/app/workspace/[workspaceId]/version-actions";
 import { formatBytesCompact } from "@/lib/attachments";
 import { canComment, canEditTeamspace, type WorkspaceRole } from "@/lib/permissions";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import { cn } from "@/lib/utils";
 import {
   useWorkspaceUIStore,
@@ -128,6 +129,20 @@ export function SupportingPane({
   } | null>(null);
   const [isPendingComment, startCommentTransition] = useTransition();
   const [isPendingVersion, startVersionTransition] = useTransition();
+
+  const [isMobileScreen, setIsMobileScreen] = useState(false);
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileScreen(window.innerWidth < 1024);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  const paneRef = useFocusTrap<HTMLElement>(isSupportingPaneOpen && isMobileScreen, {
+    onEscape: () => setSupportingPaneOpen(false),
+  });
 
   const userCanWriteComment = canComment(userRole);
   const userCanEditPage = canEditTeamspace(userRole);
@@ -297,7 +312,8 @@ export function SupportingPane({
         setActivePageTitle(res.restoredTitle);
       }
 
-      if (typeof window !== "undefined") {
+      // Jika dokumen tidak sedang aktif di server Hocuspocus, picu pembaruan blok langsung di klien
+      if (!res.reloadedInCollab && typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("npw:restore-version", {
             detail: {
@@ -326,6 +342,9 @@ export function SupportingPane({
       }}
     >
       <aside
+        ref={paneRef}
+        role={isMobileScreen ? "dialog" : "complementary"}
+        aria-modal={isMobileScreen ? "true" : undefined}
         aria-label="Panel Pendukung (Supporting Pane)"
         className={cn(
           "w-full max-w-[340px] lg:w-[340px] shrink-0 h-full flex flex-col justify-between",
@@ -340,7 +359,7 @@ export function SupportingPane({
               type="button"
               onClick={() => setActiveSupportingTab("comments")}
               className={cn(
-                "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                "min-h-[44px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
                 activeSupportingTab === "comments"
                   ? "bg-secondary-container text-on-secondary-container shadow-sm"
                   : "text-on-surface-variant hover:text-on-surface"
@@ -354,7 +373,7 @@ export function SupportingPane({
               type="button"
               onClick={() => setActiveSupportingTab("backlinks")}
               className={cn(
-                "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                "min-h-[44px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
                 activeSupportingTab === "backlinks"
                   ? "bg-secondary-container text-on-secondary-container shadow-sm"
                   : "text-on-surface-variant hover:text-on-surface"
@@ -368,7 +387,7 @@ export function SupportingPane({
               type="button"
               onClick={() => setActiveSupportingTab("history")}
               className={cn(
-                "min-h-[36px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                "min-h-[44px] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
                 activeSupportingTab === "history"
                   ? "bg-secondary-container text-on-secondary-container shadow-sm"
                   : "text-on-surface-variant hover:text-on-surface"
@@ -493,7 +512,7 @@ export function SupportingPane({
                       <button
                         type="button"
                         onClick={() => setReplyToComment(root)}
-                        className="min-h-[36px] px-2.5 rounded-full inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors cursor-pointer"
+                        className="min-h-[44px] px-3 rounded-full inline-flex items-center gap-1.5 text-xs font-medium text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors cursor-pointer"
                       >
                         <Reply className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>Balas</span>
@@ -502,7 +521,7 @@ export function SupportingPane({
                       <button
                         type="button"
                         onClick={() => handleToggleResolve(root)}
-                        className="min-h-[36px] px-2.5 rounded-full inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                        className="min-h-[44px] px-3 rounded-full inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                       >
                         {root.isResolved ? (
                           <>
@@ -726,7 +745,7 @@ export function SupportingPane({
                     type="button"
                     onClick={() => setReplyToComment(null)}
                     aria-label="Batalkan balasan utas"
-                    className="p-0.5 rounded-full hover:bg-on-secondary-container/10 cursor-pointer"
+                    className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-on-secondary-container/10 cursor-pointer shrink-0"
                   >
                     <X className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
@@ -747,7 +766,7 @@ export function SupportingPane({
                       type="button"
                       onClick={() => setActiveSelectedBlock(null)}
                       aria-label="Lepas ikatan blok dan tulis komentar umum halaman"
-                      className="p-0.5 rounded-full hover:bg-on-tertiary-container/10 cursor-pointer shrink-0"
+                      className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-on-tertiary-container/10 cursor-pointer shrink-0"
                     >
                       <X className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
@@ -767,7 +786,7 @@ export function SupportingPane({
                       key={member.userId}
                       type="button"
                       onClick={() => insertMention(member)}
-                      className="min-h-[36px] px-2.5 py-1.5 rounded-lg text-left text-xs text-on-surface hover:bg-secondary-container hover:text-on-secondary-container flex items-center justify-between gap-2 cursor-pointer"
+                      className="min-h-[44px] px-2.5 py-1.5 rounded-lg text-left text-xs text-on-surface hover:bg-secondary-container hover:text-on-secondary-container flex items-center justify-between gap-2 cursor-pointer"
                     >
                       <span className="font-medium truncate">
                         {member.fullName}

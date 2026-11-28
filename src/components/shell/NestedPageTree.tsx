@@ -239,7 +239,7 @@ function SortableTreeRow({
             {...listeners}
             aria-label={`Seret untuk mengubah urutan ${page.title}`}
             className={cn(
-              "w-5 h-7 rounded-full flex items-center justify-center shrink-0",
+              "min-w-[44px] min-h-[44px] -ml-2 rounded-full flex items-center justify-center shrink-0",
               "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
               "text-on-surface-variant hover:text-on-surface cursor-grab active:cursor-grabbing",
               "focus-visible:ring-2 focus-visible:ring-outline outline-none"
@@ -256,7 +256,7 @@ function SortableTreeRow({
             onClick={() => onToggleExpand(page.id)}
             aria-label={isExpanded ? `Ciutkan ${page.title}` : `Bentangkan ${page.title}`}
             className={cn(
-              "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
+              "min-w-[44px] min-h-[44px] -ml-1 rounded-full flex items-center justify-center shrink-0",
               "text-on-surface-variant hover:bg-surface-container-highest transition-colors",
               "focus-visible:ring-2 focus-visible:ring-outline outline-none"
             )}
@@ -309,7 +309,7 @@ function SortableTreeRow({
                     : `Pindahkan ${page.title} ke Private Space`
                 }
                 className={cn(
-                  "w-7 h-7 rounded-full flex items-center justify-center",
+                  "min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center",
                   "text-on-surface-variant hover:bg-surface-container-highest transition-colors",
                   "focus-visible:ring-2 focus-visible:ring-outline outline-none"
                 )}
@@ -326,7 +326,7 @@ function SortableTreeRow({
                 title="Tambah sub-halaman"
                 aria-label={`Tambah sub-halaman di dalam ${page.title}`}
                 className={cn(
-                  "w-7 h-7 rounded-full flex items-center justify-center",
+                  "min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center",
                   "text-on-surface-variant hover:bg-surface-container-highest transition-colors",
                   "focus-visible:ring-2 focus-visible:ring-outline outline-none"
                 )}

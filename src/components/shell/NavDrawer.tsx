@@ -28,6 +28,7 @@ import {
 import { createPageAction } from "@/app/workspace/[workspaceId]/page-actions";
 import { formatBytesCompact } from "@/lib/attachments";
 import { NestedPageTree, type NestedPageItem } from "./NestedPageTree";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import { cn } from "@/lib/utils";
 
 export type NavDrawerPageItem = NestedPageItem;
@@ -74,6 +75,9 @@ export function NavDrawer({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [treeError, setTreeError] = useState<string | null>(null);
+  const mobileDrawerRef = useFocusTrap<HTMLElement>(isMobileDrawerOpen, {
+    onEscape: () => setMobileDrawerOpen(false),
+  });
 
   const canEdit = canEditTeamspace(userRole);
   const canPrivate = canAccessPrivateSpace(userRole);
@@ -464,6 +468,9 @@ export function NavDrawer({
           }}
         >
           <aside
+            ref={mobileDrawerRef}
+            role="dialog"
+            aria-modal="true"
             aria-label="Laci Navigasi Mobile"
             className="w-[288px] max-w-[85vw] h-full bg-surface-container-low border-r border-outline-variant/40 shadow-2xl select-none"
           >
@@ -475,7 +482,7 @@ export function NavDrawer({
       {/* 4. Mobile M3 Bottom Navigation Bar (< 768px sesuai SDD §4.3) */}
       <nav
         aria-label="Navigasi Bawah Mobile"
-        className="fixed bottom-0 inset-x-0 z-30 h-20 pb-[env(safe-area-inset-bottom)] md:hidden bg-surface-container border-t border-outline-variant/40 grid grid-cols-4 items-center px-2 select-none"
+        className="fixed bottom-0 inset-x-0 z-30 min-h-20 pb-[env(safe-area-inset-bottom)] md:hidden bg-surface-container border-t border-outline-variant/40 grid grid-cols-4 items-center px-2 select-none"
       >
         <button
           type="button"

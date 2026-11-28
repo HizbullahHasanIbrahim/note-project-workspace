@@ -7,6 +7,7 @@ import type {
   onChangePayload,
   onDisconnectPayload,
   onLoadDocumentPayload,
+  onRequestPayload,
   onStoreDocumentPayload,
 } from "@hocuspocus/server";
 import type { BlockNoteEditor } from "@blocknote/core";
@@ -23,6 +24,7 @@ import {
 } from "../src/db/schema";
 import {
   extractSessionTokenFromCookieHeader,
+  getCollabInternalSecret,
   verifySessionToken,
 } from "../src/lib/auth";
 import { COLLAB_FRAGMENT_NAME } from "../src/lib/collab-constants";
@@ -638,10 +640,149 @@ export async function createCollabServer(portArg?: number) {
     },
 
     async afterUnloadDocument(data) {
+      const pendingPersist = inFlightPersistByDoc.get(data.documentName);
+      if (pendingPersist) {
+        await pendingPersist.catch(() => undefined);
+      }
       unsavedYjsDocs.delete(data.documentName);
       dirtyVersionDocs.delete(data.documentName);
       lastStoredHashByDoc.delete(data.documentName);
       lastSnapshotHashByDoc.delete(data.documentName);
+    },
+
+    async onRequest(data: onRequestPayload) {
+      const { request, response, instance } = data;
+      const parsedUrl = new URL(request.url || "/", "http://127.0.0.1");
+      const reloadPrefix = "/internal/reload-page/";
+
+      if (
+        request.method !== "POST" ||
+        !parsedUrl.pathname.startsWith(reloadPrefix)
+      ) {
+        return;
+      }
+
+      const sendJson = (status: number, body: Record<string, unknown>) => {
+        response.writeHead(status, { "Content-Type": "application/json" });
+        response.end(JSON.stringify(body));
+      };
+
+      const rawHeader = request.headers["x-internal-secret"];
+      const providedSecret = Array.isArray(rawHeader)
+        ? rawHeader[0] || ""
+        : rawHeader || "";
+      const expectedSecret = getCollabInternalSecret();
+
+      const providedBuf = Buffer.from(providedSecret, "utf8");
+      const expectedBuf = Buffer.from(expectedSecret, "utf8");
+      if (
+        providedBuf.length !== expectedBuf.length ||
+        !crypto.timingSafeEqual(providedBuf, expectedBuf)
+      ) {
+        sendJson(401, { error: "Unauthorized internal reload request." });
+        throw null;
+      }
+
+      const pageId = decodeURIComponent(
+        parsedUrl.pathname.slice(reloadPrefix.length)
+      ).trim();
+
+      if (!pageId) {
+        sendJson(400, { error: "Missing pageId." });
+        throw null;
+      }
+
+      const [page] = await db
+        .select({
+          id: pages.id,
+          workspaceId: pages.workspaceId,
+          crdtState: pages.crdtState,
+          isArchived: pages.isArchived,
+        })
+        .from(pages)
+        .where(eq(pages.id, pageId))
+        .limit(1);
+
+      if (!page || page.isArchived) {
+        sendJson(404, { error: "Halaman tidak ditemukan." });
+        throw null;
+      }
+
+      const {
+        editor: headlessEditor,
+        yDocToBlocks,
+        blocksToYXmlFragment,
+      } = await getBlockNoteRuntime();
+
+      const tempDoc = new Y.Doc();
+      try {
+        if (page.crdtState && page.crdtState.length > 0) {
+          Y.applyUpdate(tempDoc, new Uint8Array(page.crdtState));
+        }
+
+        const activeDoc =
+          instance.documents.get(pageId) ??
+          instance.documents.get(`page:${pageId}`);
+
+        if (activeDoc) {
+          // Sinkronkan dokumen di memori Hocuspocus secara atomik agar klien terhubung
+          // menerima versi terpulihkan tanpa terjadi split-brain CRDT.
+          const restoredFragment = tempDoc.getXmlFragment(COLLAB_FRAGMENT_NAME);
+          const restoredBlocks =
+            restoredFragment.length > 0
+              ? yDocToBlocks(headlessEditor, tempDoc, COLLAB_FRAGMENT_NAME)
+              : [];
+
+          activeDoc.transact(
+            () => {
+              const activeFrag = activeDoc.getXmlFragment(COLLAB_FRAGMENT_NAME);
+              if (activeFrag.length > 0) {
+                activeFrag.delete(0, activeFrag.length);
+              }
+              if (restoredBlocks.length > 0) {
+                blocksToYXmlFragment(headlessEditor, restoredBlocks, activeFrag);
+              }
+            },
+            { source: "local" }
+          );
+
+          const updatedBuffer = Buffer.from(Y.encodeStateAsUpdate(activeDoc));
+          const updatedHash = crypto
+            .createHash("sha256")
+            .update(updatedBuffer)
+            .digest("hex");
+
+          await db
+            .update(pages)
+            .set({ crdtState: updatedBuffer })
+            .where(eq(pages.id, page.id));
+
+          await syncProjectionsToDatabase(page.id, page.workspaceId, activeDoc);
+
+          lastStoredHashByDoc.set(activeDoc.name, updatedHash);
+          lastSnapshotHashByDoc.set(activeDoc.name, updatedHash);
+          unsavedYjsDocs.delete(activeDoc.name);
+          dirtyVersionDocs.delete(activeDoc.name);
+
+          sendJson(200, {
+            success: true,
+            pageId: page.id,
+            reloadedActive: true,
+          });
+          throw null;
+        }
+
+        // Dokumen tidak aktif di memori: cukup jalankan proyeksi ulang page_blocks dari DB
+        await syncProjectionsToDatabase(page.id, page.workspaceId, tempDoc);
+        sendJson(200, {
+          success: true,
+          pageId: page.id,
+          reloadedActive: false,
+        });
+        throw null;
+      } finally {
+        tempDoc.destroy();
+      }
     },
   });
 }

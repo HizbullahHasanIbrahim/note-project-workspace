@@ -112,6 +112,8 @@
   --color-surface-container: var(--md-sys-color-surface-container);
   --color-surface-container-high: var(--md-sys-color-surface-container-high);
   --color-surface-container-highest: var(--md-sys-color-surface-container-highest);
+  --color-surface-lowest: var(--md-sys-color-surface-container-lowest);
+  --color-surface-low: var(--md-sys-color-surface-container-low);
   --color-card-surface: var(--md-sys-color-card-surface);
 
   /* Content, Outlines & Inverse */
@@ -306,4 +308,53 @@ body {
   background-color: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   font-family: var(--font-inter), sans-serif;
+}
+
+/* Motion landing page: M3 entrance, no JavaScript dependency. */
+@keyframes hero-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes section-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-entrance,
+.section-entrance {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-entrance {
+    animation: hero-entrance 250ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+  }
+
+  .section-entrance {
+    animation: section-entrance 300ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+
+  .btn-primary {
+    transition: transform 180ms cubic-bezier(0.2, 0, 0, 1), box-shadow 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  }
 }

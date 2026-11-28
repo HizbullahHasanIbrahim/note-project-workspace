@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { pageVersions, pages, workspaceMembers } from "@/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { getCollabInternalSecret, getCurrentUser } from "@/lib/auth";
 import { canEditTeamspace } from "@/lib/permissions";
 import type { ActiveVersionItem } from "@/stores/useWorkspaceUIStore";
 
@@ -15,6 +15,7 @@ export interface VersionActionResult {
   version?: ActiveVersionItem;
   restoredTitle?: string;
   restoredCrdtBase64?: string | null;
+  reloadedInCollab?: boolean;
 }
 
 async function requireEditablePageAccess(workspaceId: string, pageId: string) {
@@ -167,6 +168,35 @@ export async function restorePageVersionAction(input: {
         )
       );
 
+    // Beritahu server Hocuspocus agar Y.Doc di memori ikut memuat ulang dan memproyeksikan page_blocks
+    let reloadedInCollab = false;
+    const collabPort = Number(process.env.COLLAB_PORT || 1234);
+    const collabHttpBase =
+      process.env.COLLAB_INTERNAL_URL || `http://127.0.0.1:${collabPort}`;
+
+    try {
+      const reloadRes = await fetch(
+        `${collabHttpBase}/internal/reload-page/${encodeURIComponent(
+          input.pageId
+        )}`,
+        {
+          method: "POST",
+          headers: {
+            "x-internal-secret": getCollabInternalSecret(),
+          },
+          signal: AbortSignal.timeout(3000),
+        }
+      );
+      if (reloadRes.ok) {
+        const reloadJson = (await reloadRes.json().catch(() => ({}))) as {
+          reloadedActive?: boolean;
+        };
+        reloadedInCollab = Boolean(reloadJson.reloadedActive);
+      }
+    } catch {
+      // Abaikan jika server kolaborasi sedang tidak berjalan terpisah
+    }
+
     revalidatePath(`/workspace/${input.workspaceId}`, "layout");
     revalidatePath(`/workspace/${input.workspaceId}/page/${input.pageId}`);
 
@@ -176,6 +206,7 @@ export async function restorePageVersionAction(input: {
       restoredCrdtBase64: restoredBuffer
         ? restoredBuffer.toString("base64")
         : null,
+      reloadedInCollab,
     };
   } catch (err) {
     return {

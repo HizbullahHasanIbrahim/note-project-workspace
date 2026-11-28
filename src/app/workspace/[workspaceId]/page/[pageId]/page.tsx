@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, desc, eq, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   comments,
@@ -212,7 +212,7 @@ async function AsyncPageView({ params }: PageViewProps) {
     createdAtIso: c.createdAt.toISOString(),
   }));
 
-  // 6b. Ambil daftar snapshot Version History halaman ini
+  // 6b. Ambil daftar metadata snapshot Version History tanpa memuat LONGBLOB ke memori
   const rawVersionRows = await db
     .select({
       id: pageVersions.id,
@@ -221,7 +221,7 @@ async function AsyncPageView({ params }: PageViewProps) {
       createdBy: pageVersions.createdBy,
       authorName: users.fullName,
       createdAt: pageVersions.createdAt,
-      crdtSnapshot: pageVersions.crdtSnapshot,
+      snapshotBytes: sql<number>`COALESCE(OCTET_LENGTH(${pageVersions.crdtSnapshot}), 0)`,
     })
     .from(pageVersions)
     .innerJoin(users, eq(pageVersions.createdBy, users.id))
@@ -236,7 +236,7 @@ async function AsyncPageView({ params }: PageViewProps) {
     createdBy: v.createdBy,
     authorName: v.authorName,
     createdAtIso: v.createdAt.toISOString(),
-    snapshotBytes: v.crdtSnapshot ? v.crdtSnapshot.length : 0,
+    snapshotBytes: Number(v.snapshotBytes || 0),
   }));
 
   // 7. Token otorisasi WebSocket jangka pendek untuk Hocuspocus

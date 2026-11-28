@@ -24,6 +24,7 @@ import type {
 import { TaskPriorityBadge, TaskStatusBadge } from "@/components/database/task-badges";
 import type { WorkspaceRole } from "@/lib/permissions";
 import { useWorkspaceUIStore } from "@/stores/useWorkspaceUIStore";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 interface QuickCommandModalProps {
   workspaceId: string;
@@ -52,6 +53,9 @@ export function QuickCommandModal({
   const [tasksResult, setTasksResult] = useState<SearchTaskResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingPage, startCreatingPage] = useTransition();
+  const dialogRef = useFocusTrap<HTMLDivElement>(isCmdKOpen, {
+    onEscape: () => setIsCmdKOpen(false),
+  });
 
   // Pintasan keyboard global Cmd+K / Ctrl+K
   useEffect(() => {
@@ -151,6 +155,7 @@ export function QuickCommandModal({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Pencarian Cepat Workspace (Cmd+K)"

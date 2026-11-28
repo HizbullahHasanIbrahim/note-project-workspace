@@ -1,5 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -31,6 +32,7 @@ async function AsyncWorkspaceShell({
   params: Promise<{ workspaceId: string }>;
   children: React.ReactNode;
 }) {
+  await connection();
   const { workspaceId } = await params;
   const currentUser = await getCurrentUser();
 

@@ -1,5 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { pages, workspaceMembers } from "@/db/schema";
@@ -12,6 +13,7 @@ interface WorkspaceIndexPageProps {
 async function AsyncWorkspaceIndexPage({
   params,
 }: WorkspaceIndexPageProps) {
+  await connection();
   const { workspaceId } = await params;
   const currentUser = await getCurrentUser();
 

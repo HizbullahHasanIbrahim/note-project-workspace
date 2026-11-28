@@ -66,6 +66,7 @@ interface NestedPageTreeProps {
   canEdit: boolean;
   isAdmin: boolean;
   onError?: (msg: string) => void;
+  dndId?: string;
 }
 
 function buildFlattenedTree(
@@ -203,7 +204,14 @@ function SortableTreeRow({
   const FallbackIcon = page.pageType === "database" ? Database : FileText;
 
   return (
-    <div ref={setNodeRef} style={style} className="relative group">
+    <div
+      ref={setNodeRef}
+      style={{
+        ...style,
+        paddingLeft: `${Math.max(0, depth - 1) * 10}px`,
+      }}
+      className="relative group select-none"
+    >
       {/* Indikator garis drop horizontal (SDD.md §5.3) */}
       {dropState !== "none" && (
         <div
@@ -224,25 +232,26 @@ function SortableTreeRow({
 
       <div
         className={cn(
-          "min-h-[44px] pr-2 rounded-full flex items-center gap-1 transition-colors",
+          "min-h-[38px] px-2 rounded-xl flex items-center gap-1.5 transition-colors",
           isActive
-            ? "bg-secondary-container text-on-secondary-container font-semibold"
+            ? "bg-secondary-container text-on-secondary-container font-semibold shadow-xs"
             : "text-on-surface hover:bg-surface-container",
           isDragging && "opacity-40"
         )}
       >
-        {/* Drag handle */}
+        {/* Drag handle: Kompak & Muncul Saat Hover tanpa memotong judul */}
         {canEdit && (
           <button
             type="button"
             {...attributes}
             {...listeners}
+            title={`Seret untuk mengubah urutan ${page.title}`}
             aria-label={`Seret untuk mengubah urutan ${page.title}`}
             className={cn(
-              "min-w-[44px] min-h-[44px] -ml-2 rounded-full flex items-center justify-center shrink-0",
+              "w-5 h-7 rounded flex items-center justify-center shrink-0",
               "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
               "text-on-surface-variant hover:text-on-surface cursor-grab active:cursor-grabbing",
-              "focus-visible:ring-2 focus-visible:ring-outline outline-none"
+              "focus-visible:ring-1 focus-visible:ring-outline outline-none"
             )}
           >
             <GripVertical className="w-3.5 h-3.5" />
@@ -254,11 +263,12 @@ function SortableTreeRow({
           <button
             type="button"
             onClick={() => onToggleExpand(page.id)}
+            title={isExpanded ? `Ciutkan ${page.title}` : `Bentangkan ${page.title}`}
             aria-label={isExpanded ? `Ciutkan ${page.title}` : `Bentangkan ${page.title}`}
             className={cn(
-              "min-w-[44px] min-h-[44px] -ml-1 rounded-full flex items-center justify-center shrink-0",
-              "text-on-surface-variant hover:bg-surface-container-highest transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-outline outline-none"
+              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 cursor-pointer",
+              "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors",
+              "focus-visible:ring-1 focus-visible:ring-outline outline-none"
             )}
           >
             {isExpanded ? (
@@ -271,23 +281,26 @@ function SortableTreeRow({
           <span className="w-2 shrink-0" />
         )}
 
-        {/* Tautan Halaman */}
+        {/* Tautan Halaman: Bersih Satu Baris dengan Elipsis & Tooltip Judul Lengkap */}
         <Link
           href={href}
+          title={page.title || "Tanpa Judul"}
           className={cn(
-            "flex-1 min-w-0 py-2 flex items-center gap-2 text-label-large",
-            "focus-visible:ring-2 focus-visible:ring-outline outline-none rounded-full"
+            "flex-1 min-w-0 py-1.5 flex items-center gap-2 text-sm",
+            "focus-visible:ring-2 focus-visible:ring-outline outline-none rounded-lg"
           )}
         >
           <span className="text-sm shrink-0">
             {page.icon || <FallbackIcon className="w-4 h-4 text-on-surface-variant" />}
           </span>
-          <span className="truncate">{page.title}</span>
+          <span className="truncate flex-1 font-medium text-left">
+            {page.title || "Tanpa Judul"}
+          </span>
         </Link>
 
         {/* Aksi cepat: Pindah ruang & Tambah sub-halaman */}
         {canEdit && (
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
             {canSwitchSpace && (
               <button
                 type="button"
@@ -300,18 +313,18 @@ function SortableTreeRow({
                 }
                 title={
                   page.spaceType === "private"
-                    ? "Publikasikan ke Shared Teamspace"
-                    : "Pindahkan ke Private Space"
+                    ? "Publikasikan ke Ruang Tim"
+                    : "Pindahkan ke Ruang Privat"
                 }
                 aria-label={
                   page.spaceType === "private"
-                    ? `Publikasikan ${page.title} ke Shared Teamspace`
-                    : `Pindahkan ${page.title} ke Private Space`
+                    ? `Publikasikan ${page.title} ke Ruang Tim`
+                    : `Pindahkan ${page.title} ke Ruang Privat`
                 }
                 className={cn(
-                  "min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center",
-                  "text-on-surface-variant hover:bg-surface-container-highest transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-outline outline-none"
+                  "w-7 h-7 rounded-md flex items-center justify-center cursor-pointer",
+                  "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors",
+                  "focus-visible:ring-1 focus-visible:ring-outline outline-none"
                 )}
               >
                 <ArrowLeftRight className="w-3.5 h-3.5" />
@@ -326,9 +339,9 @@ function SortableTreeRow({
                 title="Tambah sub-halaman"
                 aria-label={`Tambah sub-halaman di dalam ${page.title}`}
                 className={cn(
-                  "min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center",
-                  "text-on-surface-variant hover:bg-surface-container-highest transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-outline outline-none"
+                  "w-7 h-7 rounded-md flex items-center justify-center cursor-pointer",
+                  "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors",
+                  "focus-visible:ring-1 focus-visible:ring-outline outline-none"
                 )}
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -349,6 +362,7 @@ export function NestedPageTree({
   canEdit,
   isAdmin,
   onError,
+  dndId,
 }: NestedPageTreeProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -494,14 +508,19 @@ export function NestedPageTree({
 
   if (nodes.length === 0) {
     return (
-      <p className="px-3 py-2 text-xs text-on-surface-variant italic">
-        Belum ada halaman.
-      </p>
+      <div className="px-3 py-2.5 rounded-xl bg-surface-container/50 border border-dashed border-outline-variant/40 text-left">
+        <p className="text-xs text-on-surface-variant">
+          {spaceType === "private"
+            ? "Belum ada catatan pribadi."
+            : "Belum ada halaman tim."}
+        </p>
+      </div>
     );
   }
 
   return (
     <DndContext
+      id={dndId || `dnd-tree-${spaceType}`}
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
@@ -553,7 +572,7 @@ export function NestedPageTree({
         {activeNode ? (
           <div className="min-h-[40px] px-4 py-2 rounded-full bg-surface-container-highest text-on-surface text-label-large font-semibold shadow-md flex items-center gap-2">
             <span>{activeNode.page.icon || "📄"}</span>
-            <span className="truncate max-w-[180px]">{activeNode.page.title}</span>
+            <span className="truncate max-w-[240px]">{activeNode.page.title || "Tanpa Judul"}</span>
           </div>
         ) : null}
       </DragOverlay>

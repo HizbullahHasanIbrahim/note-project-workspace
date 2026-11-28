@@ -62,6 +62,8 @@ interface WorkspaceUIState {
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  sidebarWidth: number;
+  setSidebarWidth: (width: number) => void;
 
   isMobileDrawerOpen: boolean;
   setMobileDrawerOpen: (open: boolean) => void;
@@ -112,6 +114,8 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>((set) => ({
   isSidebarOpen: true,
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  sidebarWidth: 280,
+  setSidebarWidth: (width) => set({ sidebarWidth: width }),
 
   isMobileDrawerOpen: false,
   setMobileDrawerOpen: (open) => set({ isMobileDrawerOpen: open }),

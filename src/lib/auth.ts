@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
@@ -197,6 +198,7 @@ export async function clearSessionCookie() {
  * Mengambil informasi pengguna aktif saat ini dari sesi
  */
 export async function getCurrentUser() {
+  await connection();
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return null;

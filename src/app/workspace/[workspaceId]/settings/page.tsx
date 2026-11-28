@@ -1,5 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { db } from "@/db";
 import { workspaces, workspaceMembers, workspaceInvites, users } from "@/db/schema";
@@ -11,6 +12,7 @@ interface SettingsPageProps {
 }
 
 async function AsyncSettingsPage({ params }: SettingsPageProps) {
+  await connection();
   const { workspaceId } = await params;
   const currentUser = await getCurrentUser();
 

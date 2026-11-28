@@ -1,5 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -26,6 +27,7 @@ interface PageViewProps {
 }
 
 async function AsyncPageView({ params }: PageViewProps) {
+  await connection();
   const { workspaceId, pageId } = await params;
   const currentUser = await getCurrentUser();
 

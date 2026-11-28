@@ -1,5 +1,6 @@
 import React, { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { and, asc, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { Lock } from "lucide-react";
 import { db } from "@/db";
@@ -40,6 +41,7 @@ function formatDueDate(value: Date | string | null): string | null {
 }
 
 async function AsyncDatabasePage({ params, searchParams }: DatabasePageProps) {
+  await connection();
   const { workspaceId, dbId } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
 

@@ -540,29 +540,38 @@ export default function CollaborativeEditorInner({
         document: ydoc,
         token: collabToken,
         onStatus: ({ status }) => {
-          if (status === WebSocketStatus.Disconnected) {
-            currentCollabStatus = "offline";
-            setCollabStatus("offline");
-          } else if (status === WebSocketStatus.Connecting) {
-            // Jaga indikator offline tetap stabil saat proses reconnecting agar UI tidak flicker
-            if (currentCollabStatus !== "offline") {
-              currentCollabStatus = "syncing";
-              setCollabStatus("syncing");
+          queueMicrotask(() => {
+            if (isCancelled) return;
+            if (status === WebSocketStatus.Disconnected) {
+              currentCollabStatus = "offline";
+              setCollabStatus("offline");
+            } else if (status === WebSocketStatus.Connecting) {
+              // Jaga indikator offline tetap stabil saat proses reconnecting agar UI tidak flicker
+              if (currentCollabStatus !== "offline") {
+                currentCollabStatus = "syncing";
+                setCollabStatus("syncing");
+              }
             }
-          }
+          });
         },
         onSynced: ({ state }) => {
-          currentCollabStatus = state ? "saved" : "syncing";
-          setCollabStatus(currentCollabStatus);
+          queueMicrotask(() => {
+            if (isCancelled) return;
+            currentCollabStatus = state ? "saved" : "syncing";
+            setCollabStatus(currentCollabStatus);
+          });
         },
         onUnsyncedChanges: ({ number }) => {
-          if (number > 0) {
-            currentCollabStatus = "syncing";
-            setCollabStatus("syncing");
-          } else if (provider?.isSynced) {
-            currentCollabStatus = "saved";
-            setCollabStatus("saved");
-          }
+          queueMicrotask(() => {
+            if (isCancelled) return;
+            if (number > 0) {
+              currentCollabStatus = "syncing";
+              setCollabStatus("syncing");
+            } else if (provider?.isSynced) {
+              currentCollabStatus = "saved";
+              setCollabStatus("saved");
+            }
+          });
         },
         onAwarenessUpdate: ({ states }) => {
           const mapped = states
@@ -575,7 +584,12 @@ export default function CollaborativeEditorInner({
                 ? s.user.color
                 : "primary") as CursorAccentToken,
             }));
-          setLiveCollaborators(mapped);
+          // Defer ke microtask agar tidak memicu re-render Topbar di tengah fase render EditorSurface
+          queueMicrotask(() => {
+            if (!isCancelled) {
+              setLiveCollaborators(mapped);
+            }
+          });
         },
       });
 

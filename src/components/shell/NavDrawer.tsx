@@ -62,6 +62,8 @@ export function NavDrawer({
 }: NavDrawerProps) {
   const {
     isSidebarOpen,
+    sidebarWidth,
+    setSidebarWidth,
     isMobileDrawerOpen,
     setMobileDrawerOpen,
     isCmdKOpen,
@@ -75,9 +77,70 @@ export function NavDrawer({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [treeError, setTreeError] = useState<string | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
   const mobileDrawerRef = useFocusTrap<HTMLElement>(isMobileDrawerOpen, {
     onEscape: () => setMobileDrawerOpen(false),
   });
+
+  // Muat lebar sidebar tersimpan dari localStorage saat pertama kali dimuat
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("note_workspace_sidebar_width");
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 240 && parsed <= 520) {
+          setSidebarWidth(parsed);
+        }
+      }
+    } catch {
+      // Abaikan jika localStorage tidak tersedia
+    }
+  }, [setSidebarWidth]);
+
+  // Handler interaksi resize lebar sidebar
+  const startResizing = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.min(520, Math.max(240, startWidth + delta));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = (upEvent: MouseEvent) => {
+      setIsResizing(false);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+
+      const delta = upEvent.clientX - startX;
+      const finalWidth = Math.min(520, Math.max(240, startWidth + delta));
+      setSidebarWidth(finalWidth);
+      try {
+        localStorage.setItem("note_workspace_sidebar_width", String(finalWidth));
+      } catch {
+        // Abaikan jika quota error
+      }
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const resetSidebarWidth = () => {
+    setSidebarWidth(280);
+    try {
+      localStorage.setItem("note_workspace_sidebar_width", "280");
+    } catch {
+      // Abaikan
+    }
+  };
 
   const canEdit = canEditTeamspace(userRole);
   const canPrivate = canAccessPrivateSpace(userRole);
@@ -143,25 +206,28 @@ export function NavDrawer({
             href={`/workspace/${workspaceId}/settings`}
             aria-label="Pengaturan dan info ruang kerja"
             className={cn(
-              "flex-1 min-w-0 min-h-[44px] px-3 py-2 rounded-xl flex items-center justify-between",
+              "flex-1 min-w-0 min-h-[48px] px-3 py-2 rounded-xl flex items-center justify-between",
               "bg-surface-container hover:bg-surface-container-high transition-colors",
-              "text-on-surface focus-visible:ring-2 focus-visible:ring-outline outline-none"
+              "text-on-surface focus-visible:ring-2 focus-visible:ring-outline outline-none border border-outline-variant/30"
             )}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-semibold text-sm shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-bold text-sm shrink-0 shadow-xs">
                 {workspaceName.charAt(0).toUpperCase()}
               </div>
-              <div className="flex flex-col items-start truncate text-left">
-                <span className="font-[family-name:var(--font-jakarta)] text-sm font-semibold text-on-surface truncate">
+              <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                <span
+                  title={workspaceName}
+                  className="font-[family-name:var(--font-jakarta)] text-sm font-bold text-on-surface break-words leading-snug w-full line-clamp-2"
+                >
                   {workspaceName}
                 </span>
-                <span className="text-[11px] text-on-surface-variant font-medium">
+                <span className="text-[11px] text-on-surface-variant font-medium mt-0.5">
                   {currentMemberCount} dari {maxMembers} Anggota
                 </span>
               </div>
             </div>
-            <ChevronDown className="w-4 h-4 text-on-surface-variant shrink-0" />
+            <ChevronDown className="w-4 h-4 text-on-surface-variant shrink-0 ml-1" />
           </Link>
 
           {isOverlay && (
@@ -185,16 +251,16 @@ export function NavDrawer({
           }}
           aria-label="Cari dokumen atau tugas dengan pintasan Command K"
           className={cn(
-            "w-full min-h-[44px] px-3.5 py-2 rounded-full flex items-center justify-between",
-            "bg-surface-container-highest hover:brightness-95 transition-all",
-            "text-on-surface-variant text-label-medium focus-visible:ring-2 focus-visible:ring-outline outline-none cursor-pointer"
+            "w-full min-h-[40px] px-3.5 py-2 rounded-xl flex items-center justify-between",
+            "bg-surface-container hover:bg-surface-container-high border border-outline-variant/40 transition-colors",
+            "text-on-surface text-label-medium focus-visible:ring-2 focus-visible:ring-outline outline-none cursor-pointer"
           )}
         >
-          <span className="flex items-center gap-2 truncate">
-            <Search className="w-4 h-4 text-on-surface-variant" />
-            <span className="text-xs">Pencarian cepat...</span>
+          <span className="flex items-center gap-2 min-w-0">
+            <Search className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-medium text-on-surface">Pencarian cepat...</span>
           </span>
-          <kbd className="font-[family-name:var(--font-mono)] text-[11px] px-1.5 py-0.5 rounded-md bg-surface-container text-on-surface-variant">
+          <kbd className="font-[family-name:var(--font-mono)] text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-container-highest text-on-surface border border-outline-variant/30 shrink-0">
             ⌘K
           </kbd>
         </button>
@@ -214,19 +280,25 @@ export function NavDrawer({
       <div className="flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-5">
         {/* Shared Teamspace */}
         <div>
-          <div className="flex items-center justify-between px-2 py-1 mb-1">
-            <span className="text-label-medium text-on-surface-variant font-semibold">
-              Shared Teamspace
-            </span>
+          <div className="flex items-center justify-between px-2 py-1 mb-1.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-xs font-bold text-on-surface tracking-wide">
+                Ruang Tim
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-semibold">
+                Publik
+              </span>
+            </div>
             {canEdit && (
               <button
                 type="button"
                 disabled={isPending}
                 onClick={() => handleCreateRootPage("teamspace")}
-                aria-label="Tambah halaman baru di Shared Teamspace"
+                title="Tambah halaman baru di Ruang Tim"
+                aria-label="Tambah halaman baru di Ruang Tim"
                 className={cn(
-                  "min-w-[44px] min-h-[44px] -mr-2 rounded-full flex items-center justify-center",
-                  "hover:bg-surface-container-highest text-on-surface-variant transition-colors cursor-pointer",
+                  "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                  "hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer",
                   "focus-visible:ring-2 focus-visible:ring-outline outline-none"
                 )}
               >
@@ -236,6 +308,7 @@ export function NavDrawer({
           </div>
 
           <NestedPageTree
+            dndId={`dnd-tree-teamspace-${isOverlay ? "mobile" : "desktop"}`}
             workspaceId={workspaceId}
             spaceType="teamspace"
             pages={teamspacePages}
@@ -249,19 +322,25 @@ export function NavDrawer({
         {/* Private Space (Terisolasi per pengguna aktif / Anti-IDOR) */}
         {canPrivate && (
           <div>
-            <div className="flex items-center justify-between px-2 py-1 mb-1">
-              <span className="text-label-medium text-on-surface-variant font-semibold flex items-center gap-1.5">
-                <FolderLock className="w-3.5 h-3.5" />
-                Private Space
-              </span>
+            <div className="flex items-center justify-between px-2 py-1 mb-1.5">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <FolderLock className="w-3.5 h-3.5 text-tertiary shrink-0" />
+                <span className="text-xs font-bold text-on-surface tracking-wide">
+                  Ruang Privat
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-semibold">
+                  Hanya Anda
+                </span>
+              </div>
               <button
                 type="button"
                 disabled={isPending}
                 onClick={() => handleCreateRootPage("private")}
+                title="Tambah catatan pribadi baru"
                 aria-label="Tambah catatan pribadi baru"
                 className={cn(
-                  "min-w-[44px] min-h-[44px] -mr-2 rounded-full flex items-center justify-center",
-                  "hover:bg-surface-container-highest text-on-surface-variant transition-colors cursor-pointer",
+                  "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                  "hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer",
                   "focus-visible:ring-2 focus-visible:ring-outline outline-none"
                 )}
               >
@@ -270,6 +349,7 @@ export function NavDrawer({
             </div>
 
             <NestedPageTree
+              dndId={`dnd-tree-private-${isOverlay ? "mobile" : "desktop"}`}
               workspaceId={workspaceId}
               spaceType="private"
               pages={privatePages}
@@ -283,30 +363,30 @@ export function NavDrawer({
       </div>
 
       {/* Bagian Bawah: Kuota Workspace & Pengaturan */}
-      <div className="p-3 border-t border-outline-variant/30 flex flex-col gap-2">
-        <div className="p-3 rounded-xl bg-surface-container flex flex-col gap-2 text-xs">
-          <div className="flex items-center justify-between text-on-surface-variant font-medium">
-            <span className="flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5" /> Anggota
+      <div className="p-3 border-t border-outline-variant/30 flex flex-col gap-2.5">
+        <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/30 flex flex-col gap-2.5 text-xs">
+          <div className="flex items-center justify-between font-medium">
+            <span className="flex items-center gap-1.5 text-on-surface-variant">
+              <Users className="w-3.5 h-3.5 text-primary" /> Anggota Tim
             </span>
-            <span>
+            <span className="font-mono font-bold text-on-surface text-[11px]">
               {currentMemberCount} / {maxMembers}
             </span>
           </div>
           <div className="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full"
+              className="h-full bg-primary rounded-full transition-all duration-300"
               style={{
                 width: `${Math.min(100, (currentMemberCount / maxMembers) * 100)}%`,
               }}
             />
           </div>
 
-          <div className="flex items-center justify-between text-on-surface-variant font-medium pt-1">
-            <span className="flex items-center gap-1.5">
-              <HardDrive className="w-3.5 h-3.5" /> Kuota 1 GB
+          <div className="flex items-center justify-between font-medium pt-1">
+            <span className="flex items-center gap-1.5 text-on-surface-variant">
+              <HardDrive className="w-3.5 h-3.5 text-primary" /> Kuota Penyimpanan
             </span>
-            <span>
+            <span className="font-mono font-bold text-on-surface text-[11px]">
               {formatBytesCompact(storageUsedBytes)} /{" "}
               {formatBytesCompact(storageLimitBytes)}
             </span>
@@ -314,8 +394,8 @@ export function NavDrawer({
           <div className="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
             <div
               className={cn(
-                "h-full rounded-full",
-                storagePct >= 90 ? "bg-error" : "bg-secondary"
+                "h-full rounded-full transition-all duration-300",
+                storagePct >= 90 ? "bg-error" : "bg-primary"
               )}
               style={{ width: `${Math.max(4, storagePct)}%` }}
             />
@@ -325,13 +405,13 @@ export function NavDrawer({
         <Link
           href={`/workspace/${workspaceId}/settings`}
           className={cn(
-            "min-h-[44px] px-3.5 py-2 rounded-xl flex items-center gap-2.5",
+            "min-h-[40px] px-3.5 py-2 rounded-xl flex items-center gap-2.5",
             "text-on-surface hover:bg-surface-container transition-colors",
-            "text-label-large focus-visible:ring-2 focus-visible:ring-outline outline-none"
+            "text-label-large font-medium focus-visible:ring-2 focus-visible:ring-outline outline-none"
           )}
         >
-          <Settings className="w-4 h-4 text-on-surface-variant" />
-          <span>Pengaturan Ruang Kerja</span>
+          <Settings className="w-4 h-4 text-on-surface-variant shrink-0" />
+          <span className="text-xs font-semibold text-on-surface truncate">Pengaturan Ruang Kerja</span>
         </Link>
       </div>
     </div>
@@ -345,17 +425,67 @@ export function NavDrawer({
 
   return (
     <>
-      {/* 1. Desktop Navigation Drawer (>= 1024px) */}
+      {/* 1. Desktop Navigation Drawer (>= 1024px) yang dapat di-resize */}
       {isSidebarOpen && (
         <aside
           aria-label="Navigasi Utama Workspace"
+          style={{ width: `${sidebarWidth}px` }}
           className={cn(
-            "hidden lg:flex w-[272px] shrink-0 h-full flex-col",
+            "hidden lg:flex shrink-0 h-full flex-col relative",
             "bg-surface-container-low border-r border-outline-variant/30 select-none",
-            "transition-all duration-200"
+            isResizing ? "transition-none select-none" : "transition-[width] duration-150 ease-out"
           )}
         >
           {renderDrawerInner(false)}
+
+          {/* Pegangan Drag untuk Mengubah Ukuran Sidebar */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Ubah lebar bilah samping"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={240}
+            aria-valuemax={520}
+            tabIndex={0}
+            onMouseDown={startResizing}
+            onDoubleClick={resetSidebarWidth}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") {
+                const next = Math.max(240, sidebarWidth - 16);
+                setSidebarWidth(next);
+                try {
+                  localStorage.setItem("note_workspace_sidebar_width", String(next));
+                } catch {
+                  // ignore
+                }
+              } else if (e.key === "ArrowRight") {
+                const next = Math.min(520, sidebarWidth + 16);
+                setSidebarWidth(next);
+                try {
+                  localStorage.setItem("note_workspace_sidebar_width", String(next));
+                } catch {
+                  // ignore
+                }
+              } else if (e.key === "Enter" || e.key === " ") {
+                resetSidebarWidth();
+              }
+            }}
+            title="Tarik untuk mengubah lebar bilah samping (klik ganda untuk reset 280px)"
+            className={cn(
+              "absolute top-0 right-0 -mr-1.5 w-3 h-full cursor-col-resize z-20 group flex items-center justify-center outline-none",
+              "hover:bg-transparent"
+            )}
+          >
+            {/* Indikator Garis Tonal saat Hover / Drag */}
+            <div
+              className={cn(
+                "w-0.5 h-full rounded-full transition-all duration-150",
+                isResizing
+                  ? "bg-primary w-1 opacity-100"
+                  : "bg-transparent group-hover:bg-outline-variant group-hover:w-1 group-focus-visible:bg-primary group-focus-visible:w-1"
+              )}
+            />
+          </div>
         </aside>
       )}
 
@@ -472,7 +602,7 @@ export function NavDrawer({
             role="dialog"
             aria-modal="true"
             aria-label="Laci Navigasi Mobile"
-            className="w-[288px] max-w-[85vw] h-full bg-surface-container-low border-r border-outline-variant/40 shadow-2xl select-none"
+            className="w-[300px] max-w-[85vw] h-full bg-surface-container-low border-r border-outline-variant/40 shadow-2xl select-none"
           >
             {renderDrawerInner(true)}
           </aside>
